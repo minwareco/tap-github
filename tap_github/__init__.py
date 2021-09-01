@@ -747,9 +747,11 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
                 pull_requests = response.json()
                 extraction_time = singer.utils.now()
                 for pr in pull_requests:
-                    # Skip records that haven't been updated since the last run
+                    # Skip records that haven't been updated since the last run because
                     # the GitHub API doesn't currently allow a ?since param for pulls.
-                    # Return early in this case
+                    # Return early in this case to stop querying pages of pull requests.
+                    # PRs get "updated" when the head or base changes, so those commits will have
+                    # been fetched in a previous run.
                     if bookmark_time and singer.utils.strptime_to_utc(pr.get('updated_at')) < bookmark_time:
                         return state
 
