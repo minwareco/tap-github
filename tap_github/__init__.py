@@ -29,7 +29,6 @@ KEY_PROPERTIES = {
     'releases': ['id'],
     'reviews': ['id'],
     'review_comments': ['id'],
-    'pr_commits': ['id'],
     'events': ['id'],
     'issue_events': ['id'],
     'issue_labels': ['id'],
@@ -159,7 +158,7 @@ def translate_state(state, catalog, repositories):
     return new_state
 
 
-def get_bookmark(state, repo, stream_name, bookmark_key, start_date):
+def get_bookmark(state, repo, stream_name, bookmark_key, start_date=None):
     repo_stream_dict = bookmarks.get_bookmark(state, repo, stream_name)
     if repo_stream_dict:
         return repo_stream_dict.get(bookmark_key)
@@ -212,6 +211,10 @@ def authed_get(source, url, headers={}):
         rate_throttling(resp)
         return resp
 
+def authed_get_yield(source, url, headers={}):
+    response = authed_get(source, url, headers)
+    yield response
+
 def authed_get_all_pages(source, url, headers={}):
     while True:
         r = authed_get(source, url, headers)
@@ -247,8 +250,6 @@ def load_schemas():
         file_raw = filename.replace('.json', '')
         with open(path) as file:
             schemas[file_raw] = json.load(file)
-
-    schemas['pr_commits'] = generate_pr_commit_schema(schemas['commits'])
     return schemas
 
 class DependencyException(Exception):
@@ -722,10 +723,14 @@ def get_all_releases(schemas, repo_path, state, mdata, _start_date):
 
     return state
 
+PR_CACHE = {}
 def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
     '''
     https://developer.github.com/v3/pulls/#list-pull-requests
     '''
+
+    cur_cache = {}
+    PR_CACHE[repo_path] = cur_cache
 
     bookmark_value = get_bookmark(state, repo_path, "pull_requests", "since", start_date)
     if bookmark_value:
@@ -737,23 +742,30 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
         with metrics.record_counter('reviews') as reviews_counter:
             for response in authed_get_all_pages(
                     'pull_requests',
-                    'https://api.github.com/repos/{}/pulls?state=all&sort=updated&direction=desc'.format(repo_path)
+                    'https://api.github.com/repos/{}/pulls?per_page=100&state=all&sort=updated&direction=desc'.format(repo_path)
             ):
                 pull_requests = response.json()
                 extraction_time = singer.utils.now()
                 for pr in pull_requests:
-
-
-                    # skip records that haven't been updated since the last run
-                    # the GitHub API doesn't currently allow a ?since param for pulls
-                    # once we find the first piece of old data we can return, thanks to
-                    # the sorting
-                    if bookmark_time and singer.utils.strptime_to_utc(pr.get('updated_at')) < bookmark_time:
-                        return state
-
                     pr_num = pr.get('number')
                     pr_id = pr.get('id')
                     pr['_sdc_repository'] = repo_path
+
+                    # Cache the commit into for commit fetching
+                    cur_cache[str(pr_num)] = {
+                        'pr_num': str(pr_num),
+                        'base_sha': pr['base']['sha'],
+                        'base_ref': pr['base']['ref'],
+                        'head_sha': pr['head']['sha'],
+                        'head_ref': pr['head']['ref']
+                    }
+
+                    # skip records that haven't been updated since the last run
+                    # the GitHub API doesn't currently allow a ?since param for pulls.
+                    if bookmark_time and singer.utils.strptime_to_utc(pr.get('updated_at')) < bookmark_time:
+                        # Continue instead of returning state so that we can always get a list of
+                        # all the heads for fetching commits
+                        continue
 
                     # transform and write pull_request record
                     with singer.Transformer() as transformer:
@@ -778,33 +790,8 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
                             singer.write_record('review_comments', review_comment_rec, time_extracted=extraction_time)
                             singer.write_bookmark(state, repo_path, 'review_comments', {'since': singer.utils.strftime(extraction_time)})
 
-                    if schemas.get('pr_commits'):
-                        for pr_commit in get_commits_for_pr(
-                                pr_num,
-                                pr_id,
-                                schemas['pr_commits'],
-                                repo_path,
-                                state,
-                                mdata
-                        ):
-                            # Augment each commit with file-level diff data by hitting the commits
-                            # endpoint with the individual commit hash
-                            # TODO: fetch multiple pages of changed files if the changed file count
-                            # exceeds 300.
-                            for commit_detail in authed_get_all_pages(
-                                'commits',
-                                'https://api.github.com/repos/{}/commits/{}'.format(repo_path,
-                                    pr_commit['sha'])
-                            ):
-                                detail_json = commit_detail.json()
-                                pr_commit['files'] = detail_json['files']
-                                pr_commit['stats'] = detail_json['stats']
-                                # TODO: I don't think this response can have more than one item, but
-                                # it'd be good to throw an exception if one is found.
-                                break
-
-                            singer.write_record('pr_commits', pr_commit, time_extracted=extraction_time)
-                            singer.write_bookmark(state, repo_path, 'pr_commits', {'since': singer.utils.strftime(extraction_time)})
+                    # We eliminated pr_commits entirely since they can now be obtained by following
+                    # the head commit from a PR.
 
     return state
 
@@ -837,25 +824,6 @@ def get_review_comments_for_pr(pr_number, schema, repo_path, state, mdata):
 
 
         return state
-
-def get_commits_for_pr(pr_number, pr_id, schema, repo_path, state, mdata):
-    for response in authed_get_all_pages(
-            'pr_commits',
-            'https://api.github.com/repos/{}/pulls/{}/commits'.format(repo_path,pr_number)
-    ):
-
-        commit_data = response.json()
-        for commit in commit_data:
-            commit['_sdc_repository'] = repo_path
-            commit['pr_number'] = pr_number
-            commit['pr_id'] = pr_id
-            commit['id'] = '{}-{}'.format(pr_id, commit['sha'])
-            with singer.Transformer() as transformer:
-                rec = transformer.transform(commit, schema, metadata=metadata.to_map(mdata))
-            yield rec
-
-        return state
-
 
 def get_all_assignees(schema, repo_path, state, mdata, _start_date):
     '''
@@ -966,7 +934,7 @@ def get_repo_metadata(repo_path):
             break
     return repo_cache[repo_path]
 
-branch_cache = {}
+BRANCH_CACHE = {}
 def get_all_branches(schema, repo_path,  state, mdata, start_date):
     '''
     https://docs.github.com/en/rest/reference/repos#list-branches
@@ -974,6 +942,9 @@ def get_all_branches(schema, repo_path,  state, mdata, start_date):
     # No bookmark available
 
     default_branch_name = get_repo_metadata(repo_path)['default_branch']
+
+    cur_cache = {}
+    BRANCH_CACHE[repo_path] = cur_cache
 
     with metrics.record_counter('branches') as counter:
         for response in authed_get_all_pages(
@@ -988,7 +959,7 @@ def get_all_branches(schema, repo_path,  state, mdata, start_date):
                 isdefault = branch['name'] == default_branch_name
                 branch['isdefault'] = isdefault
 
-                branch_cache[branch['name']] = { 'sha': branch['commit']['sha'], \
+                cur_cache[branch['name']] = { 'sha': branch['commit']['sha'], \
                     'isdefault': isdefault, 'name': branch['name'] }
                 with singer.Transformer() as transformer:
                     rec = transformer.transform(branch, schema, metadata=metadata.to_map(mdata))
@@ -997,23 +968,56 @@ def get_all_branches(schema, repo_path,  state, mdata, start_date):
     return state
 
 def get_all_heads_for_commits(repo_path):
+    '''
+    Gets a list of all SHAs to use as heads for importing lists of commits. Includes all branches
+    and PRs (both base and head) as well as the main branch to get all potential starting points.
+    '''
     default_branch_name = get_repo_metadata(repo_path)['default_branch']
 
     # If this data has already been populated with get_all_branches, don't duplicate the work.
-    if not branch_cache:
+    if not repo_path in BRANCH_CACHE:
+        cur_cache = {}
+        BRANCH_CACHE[repo_path] = cur_cache
         for response in authed_get_all_pages(
-                'branches',
-                'https://api.github.com/repos/{}/branches?per_page=100'.format(repo_path)
+            'branches',
+            'https://api.github.com/repos/{}/branches?per_page=100'.format(repo_path)
         ):
             branches = response.json()
             for branch in branches:
                 isdefault = branch['name'] == default_branch_name
-                branch_cache[branch['name']] = { 'sha': branch['commit']['sha'], \
-                    'isdefault': isdefault, 'name': branch['name'] }
-                branch_cache[branch['name']] = branch['commit']['sha']
+                cur_cache[branch['name']] = {
+                    'sha': branch['commit']['sha'],
+                    'isdefault': isdefault,
+                    'name': branch['name']
+                }
 
-    # TODO: Get any additional heads from pull requests, both open and closed
-    return branch_cache
+    if not repo_path in PR_CACHE:
+        cur_cache = {}
+        PR_CACHE[repo_path] = cur_cache
+        for response in authed_get_all_pages(
+            'pull_requests',
+            'https://api.github.com/repos/{}/pulls?per_page=100&state=all'.format(repo_path)
+        ):
+            for pr in pull_requests:
+                pr_num = pr.get('number')
+                cur_cache[str(pr_num)] = {
+                    'pr_num': str(pr_num),
+                    'base_sha': pr['base']['sha'],
+                    'base_ref': pr['base']['ref'],
+                    'head_sha': pr['head']['sha'],
+                    'head_ref': pr['head']['ref']
+                }
+
+    # Now build a set of all potential heads
+    head_set = {}
+    for key, val in BRANCH_CACHE[repo_path].items():
+        head_set[val['sha']] = 1
+    for key, val in PR_CACHE[repo_path].items():
+        head_set[val['head_sha']] = 1
+        # There could be a PR into a branch that has since been deleted and this is our only record
+        # of its head, so include it
+        head_set[val['base_sha']] = 1
+    return head_set.keys()
 
 def get_commit_detail(commit, repo_path):
     '''
@@ -1118,45 +1122,78 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     if not bookmark:
         bookmark = '1970-01-01'
 
+    # Get the set of all commits we have fetched previously
+    fetchedCommits = get_bookmark(state, repo_path, "commits", "fetchedCommits")
+    if not fetchedCommits:
+        fetchedCommits = {}
+    else:
+        # We have run previously, so we don't want to use the time-based bookmark becuase it could
+        # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
+        # to the beginning of time and rely solely on the fetchedCommits bookmark.
+        bookmark = '1970-01-01'
+
+    # We don't want newly fetched commits to update the state if we fail partway through, because
+    # this could lead to commits getting marked as fetched when their parents are never fetched. So,
+    # copy the dict.
+    fetchedCommits = fetchedCommits.copy()
+
     # Get all of the branch heads to use for querying commits
     heads = get_all_heads_for_commits(repo_path)
-    headvals = heads.values()
-    # Just make sure that the default branch is first, the other order doesn't matter
-    def sortFunc(val):
-        return '0' if val['isdefault'] else val['sha']
-    headvals.sort(key=sortFunc)
-
-    # Get the name of the main branch
 
     with metrics.record_counter('commits') as counter:
-        for head in headvals:
-            # Use the SHA on the off chance a branch is deleted or a new commit comes in since we
-            # fetched the branch list.
-            headsha = head['sha']
-
+        for head in heads:
             # If the head commit has already been synced, then skip.
+            if head in fetchedCommits:
+                continue
+
+            # Maintain a list of parents we are waiting to see
+            missingParents = {}
 
             cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
-                .format(repo_path, headsha, bookmark)
+                .format(repo_path, head, bookmark)
             while True:
                 # Get commits one page at a time
-                response = authed_get('commits', cururl)
-                yield response
+                response = list(authed_get_yield('commits', cururl))[0]
                 commits = response.json()
                 extraction_time = singer.utils.now()
                 for commit in commits:
+                    # Skip commits we've already imported
+                    if commit['sha'] in fetchedCommits:
+                        continue
                     get_commit_detail(commit, repo_path)
                     commit['_sdc_repository'] = repo_path
                     with singer.Transformer() as transformer:
                         rec = transformer.transform(commit, schema, metadata=metadata.to_map(mdata))
                     singer.write_record('commits', rec, time_extracted=extraction_time)
-                    singer.write_bookmark(state, repo_path, 'commits', {'since': singer.utils.strftime(extraction_time)})
+
+                    # Record that we have now fetched this commit
+                    fetchedCommits[commit['sha']] = 1
+                    # No longer a missing parent
+                    missingParents.pop(commit['sha'], None)
+
+                    # Keep track of new missing parents
+                    for parent in commit['parents']:
+                        if not parent['sha'] in fetchedCommits:
+                            missingParents[parent['sha']] = 1
                     counter.increment()
 
-                if 'next' in response.links:
-                    cururl = response.links['next']['url']
-                else:
+                # If there are no missing parents, then we are done prior to reaching the lst page
+                if not missingParents:
                     break
+                elif 'next' in response.links:
+                    cururl = response.links['next']['url']
+                # Else if we have reached the end of our data but not found the parents, then we
+                # have a problem
+                else:
+                    raise GithubException('Some commit parents never found: ' + \
+                        ','.join(missingParents.keys()))
+
+    # Don't write until the end so that we don't record fetchedCommits if we fail and never get
+    # their parents.
+    singer.write_bookmark(state, repo_path, 'commits', {
+        'since': singer.utils.strftime(extraction_time),
+        'fetchedCommits': fetchedCommits
+    })
 
     return state
 
@@ -1285,7 +1322,7 @@ SYNC_FUNCTIONS = {
 }
 
 SUB_STREAMS = {
-    'pull_requests': ['reviews', 'review_comments', 'pr_commits'],
+    'pull_requests': ['reviews', 'review_comments'],
     'projects': ['project_cards', 'project_columns'],
     'teams': ['team_members', 'team_memberships']
 }
@@ -1304,9 +1341,14 @@ def do_sync(config, state, catalog):
     state = translate_state(state, catalog, repositories)
     singer.write_state(state)
 
-    # Put branches before commits, which has a data dependency on it.
+    # Put branches and then pull requests before commits, which have a data dependency on them.
     def schemaSortFunc(val):
-        return 'aaa' if val['tap_stream_id'] == 'branches' else val['tap_stream_id']
+        if val['tap_stream_id'] == 'branches':
+            return 'aa'
+        elif val['tap_stream_id'] == 'pull_requests':
+            return 'bb'
+        else:
+            return val['tap_stream_id']
     catalog['streams'].sort(key=schemaSortFunc)
 
     #pylint: disable=too-many-nested-blocks
