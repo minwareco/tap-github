@@ -18,7 +18,7 @@ logger = singer.get_logger()
 REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 
 KEY_PROPERTIES = {
-    'branches': ['name'],
+    'branches': ['repo_name'],
     'commits': ['sha'],
     'comments': ['id'],
     'issues': ['id'],
@@ -954,11 +954,26 @@ def create_patch_for_files(old_text, new_text):
     output = '\n'.join(newDiffList)
     return output
 
+repo_cache = {}
+def get_repo_metadata(repo_path):
+    if not repo_path in repo_cache:
+        for response in authed_get_all_pages(
+                'branches',
+                'https://api.github.com/repos/{}'.format(repo_path)
+        ):
+            repo_cache[repo_path] = response.json()
+            # Will never be multiple pages
+            break
+    return repo_cache[repo_path]
+
+branch_cache = {}
 def get_all_branches(schema, repo_path,  state, mdata, start_date):
     '''
     https://docs.github.com/en/rest/reference/repos#list-branches
     '''
     # No bookmark available
+
+    default_branch_name = get_repo_metadata(repo_path)['default_branch']
 
     with metrics.record_counter('branches') as counter:
         for response in authed_get_all_pages(
@@ -968,13 +983,36 @@ def get_all_branches(schema, repo_path,  state, mdata, start_date):
             branches = response.json()
             extraction_time = singer.utils.now()
             for branch in branches:
-
                 branch['_sdc_repository'] = repo_path
+                branch['repo_name'] = repo_path + ':' + branch['name']
+                isdefault = branch['name'] == default_branch_name
+                branch['isdefault'] = isdefault
+
+                branch_cache[branch['name']] = { 'sha': branch['commit']['sha'], \
+                    'isdefault': isdefault }
                 with singer.Transformer() as transformer:
                     rec = transformer.transform(branch, schema, metadata=metadata.to_map(mdata))
                 singer.write_record('branches', rec, time_extracted=extraction_time)
                 counter.increment()
     return state
+
+def get_all_branches_for_commits(repo_path):
+    default_branch_name = get_repo_metadata(repo_path)['default_branch']
+
+    # If this data has already been populated with get_all_branches, don't duplicate the work.
+    if not branch_cache:
+        for response in authed_get_all_pages(
+                'branches',
+                'https://api.github.com/repos/{}/branches?per_page=100'.format(repo_path)
+        ):
+            branches = response.json()
+            for branch in branches:
+                isdefault = branch['name'] == default_branch_name
+                branch_cache[branch['name']] = { 'sha': branch['commit']['sha'], \
+                    'isdefault': isdefault }
+                branch_cache[branch['name']] = branch['commit']['sha']
+    return branch_cache
+
 
 # Diffs over this many bytes of text are dropped and instead replaced with a flag indicating that
 # the file is large.
@@ -984,11 +1022,17 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     '''
     https://developer.github.com/v3/repos/commits/#list-commits-on-a-repository
     '''
+
     bookmark = get_bookmark(state, repo_path, "commits", "since", start_date)
     if bookmark:
         query_string = '?since={}'.format(bookmark)
     else:
         query_string = ''
+
+    # Get all of the branch heads to use for querying commits
+    heads = get_all_branches_for_commits(repo_path)
+
+    # Get the name of the main branch
 
     with metrics.record_counter('commits') as counter:
         for response in authed_get_all_pages(
@@ -1238,6 +1282,11 @@ def do_sync(config, state, catalog):
     state = translate_state(state, catalog, repositories)
     singer.write_state(state)
 
+    # Put branches before commits, which has a data dependency on it.
+    def schemaSortFunc(val):
+        return 'aaa' if val['tap_stream_id'] == 'branches' else val['tap_stream_id']
+    catalog['streams'].sort(key=schemaSortFunc)
+
     #pylint: disable=too-many-nested-blocks
     for repo in repositories:
         logger.info("Starting sync of repository: %s", repo)
@@ -1252,6 +1301,7 @@ def do_sync(config, state, catalog):
 
             # if stream is selected, write schema and sync
             if stream_id in selected_stream_ids:
+                logger.info("Syncing stream: %s", stream_id)
                 singer.write_schema(stream_id, stream_schema, stream['key_properties'])
 
                 # get sync function and any sub streams
