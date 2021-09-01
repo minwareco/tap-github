@@ -1012,7 +1012,7 @@ def get_all_heads_for_commits(repo_path):
                     'isdefault': isdefault, 'name': branch['name'] }
                 branch_cache[branch['name']] = branch['commit']['sha']
 
-    # Get any additional heads from pull requests -- open and closed
+    # TODO: Get any additional heads from pull requests, both open and closed
     return branch_cache
 
 def get_commit_detail(commit, repo_path):
