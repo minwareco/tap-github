@@ -1140,6 +1140,9 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     # Get all of the branch heads to use for querying commits
     heads = get_all_heads_for_commits(repo_path)
 
+    # Set this here for updating the state when we don't run any queries
+    extraction_time = singer.utils.now()
+
     with metrics.record_counter('commits') as counter:
         for head in heads:
             # If the head commit has already been synced, then skip.
