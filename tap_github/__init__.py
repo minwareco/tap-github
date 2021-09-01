@@ -747,6 +747,12 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
                 pull_requests = response.json()
                 extraction_time = singer.utils.now()
                 for pr in pull_requests:
+                    # Skip records that haven't been updated since the last run
+                    # the GitHub API doesn't currently allow a ?since param for pulls.
+                    # Return early in this case
+                    if bookmark_time and singer.utils.strptime_to_utc(pr.get('updated_at')) < bookmark_time:
+                        return state
+
                     pr_num = pr.get('number')
                     pr_id = pr.get('id')
                     pr['_sdc_repository'] = repo_path
@@ -759,13 +765,6 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
                         'head_sha': pr['head']['sha'],
                         'head_ref': pr['head']['ref']
                     }
-
-                    # skip records that haven't been updated since the last run
-                    # the GitHub API doesn't currently allow a ?since param for pulls.
-                    if bookmark_time and singer.utils.strptime_to_utc(pr.get('updated_at')) < bookmark_time:
-                        # Continue instead of returning state so that we can always get a list of
-                        # all the heads for fetching commits
-                        continue
 
                     # transform and write pull_request record
                     with singer.Transformer() as transformer:
