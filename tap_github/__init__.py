@@ -989,14 +989,14 @@ def get_all_branches(schema, repo_path,  state, mdata, start_date):
                 branch['isdefault'] = isdefault
 
                 branch_cache[branch['name']] = { 'sha': branch['commit']['sha'], \
-                    'isdefault': isdefault }
+                    'isdefault': isdefault, 'name': branch['name'] }
                 with singer.Transformer() as transformer:
                     rec = transformer.transform(branch, schema, metadata=metadata.to_map(mdata))
                 singer.write_record('branches', rec, time_extracted=extraction_time)
                 counter.increment()
     return state
 
-def get_all_branches_for_commits(repo_path):
+def get_all_heads_for_commits(repo_path):
     default_branch_name = get_repo_metadata(repo_path)['default_branch']
 
     # If this data has already been populated with get_all_branches, don't duplicate the work.
@@ -1009,10 +1009,101 @@ def get_all_branches_for_commits(repo_path):
             for branch in branches:
                 isdefault = branch['name'] == default_branch_name
                 branch_cache[branch['name']] = { 'sha': branch['commit']['sha'], \
-                    'isdefault': isdefault }
+                    'isdefault': isdefault, 'name': branch['name'] }
                 branch_cache[branch['name']] = branch['commit']['sha']
+
+    # Get any additional heads from pull requests -- open and closed
     return branch_cache
 
+def get_commit_detail(commit, repo_path):
+    '''
+    # Augment each commit with overall stats and file-level diff data by hitting the commits
+    # endpoint with the individual commit hash.
+    # This is copied from the github documentation:
+    # Note: If there are more than 300 files in the commit diff, the response will
+    # include pagination link headers for the remaining files, up to a limit of 3000
+    # files. Each page contains the static commit information, and the only changes are
+    # to the file listing.
+    # TODO: if the changed file count exceeds 3000, then use the raw checkout to fetch
+    # this data.
+    '''
+
+    # Hash of file addition that's too large, for testing
+    #if commit['sha'] != '836f0c47362e2f92f57ddee977df0f5c0da6d53b':
+    #    continue
+    # Hash of commit with file change that's too large, for testing
+    #if commit['sha'] != '1961e1b44e7c15b1f62f6da99b0e284b71d64048':
+    #    continue
+
+    commit['files'] = []
+    for commit_detail in authed_get_all_pages(
+        'commits',
+        'https://api.github.com/repos/{}/commits/{}'.format(repo_path, commit['sha'])
+    ):
+        # TODO: test fetching multiple pages of changed files if the changed file count
+        # exceeds 300.
+        detail_json = commit_detail.json()
+        commit['stats'] = detail_json['stats']
+        commit['files'].extend(detail_json['files'])
+
+    # Iterate through each of the file changes and fetch the raw patch if it is missing
+    # because it is too big of a change
+    for commitFile in commit['files']:
+        commitFile['isBinary'] = False
+        commitFile['isLargeFile'] = False
+
+        # Skip if there's already a patch
+        if 'patch' in commitFile:
+            continue
+        # If no changes are showing, this is probably a binary file
+        if commitFile['changes'] == 0 and commitFile['additions'] == 0 and \
+                commitFile['deletions'] == 0:
+            # Indicate that this file is binary if it's "modified" and the change
+            # counts are zero. Change counts can be zero for other reasons with renames
+            # and additions/deletions of empty files
+            if commitFile['status'] == 'modified':
+                commitFile['isBinary'] = True
+            continue
+
+        # Patch is missing for large file, get the urls of the current and previous
+        # raw change blobs
+        currentContentsUrl = commitFile['contents_url']
+
+        for currentContents in authed_get_all_pages(
+            'file_contents',
+            currentContentsUrl
+        ):
+            currentContentsJson = currentContents.json()
+            fileContent = currentContentsJson['content']
+                # TODO: do we need to catch base64 decode errors in case file is binary?
+            decodedFileContent = base64.b64decode(fileContent).decode("utf-8")
+            # Will only be one page
+            break
+
+        # Get the previous contents if the file existed before (not added)
+        decodedPreviousFileContent = ''
+        if commitFile['status'] != 'added':
+            contentPath = currentContentsUrl.split('?ref=')[0]
+            # First parent is base, second parent is head
+            baseSha = commit['parents'][0]['sha']
+            previousContentsUrl = contentPath + '?ref=' + baseSha
+
+            for previousContents in authed_get_all_pages(
+                'file_contents',
+                previousContentsUrl
+            ):
+                previousContentsJson = previousContents.json()
+                previousFileContent = previousContentsJson['content']
+                # TODO: do we need to catch base64 decode errors in case file is binary?
+                decodedPreviousFileContent = base64.b64decode(previousFileContent).decode("utf-8")
+                # Will only be one page
+                break
+
+        patch = create_patch_for_files(decodedFileContent, decodedPreviousFileContent)
+        if len(patch) > LARGE_FILE_DIFF_THRESHOLD:
+            commitFile['isLargeFile'] = True
+        else:
+            commitFile['patch'] = patch
 
 # Diffs over this many bytes of text are dropped and instead replaced with a flag indicating that
 # the file is large.
@@ -1024,117 +1115,48 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     '''
 
     bookmark = get_bookmark(state, repo_path, "commits", "since", start_date)
-    if bookmark:
-        query_string = '?since={}'.format(bookmark)
-    else:
-        query_string = ''
+    if not bookmark:
+        bookmark = '1970-01-01'
 
     # Get all of the branch heads to use for querying commits
-    heads = get_all_branches_for_commits(repo_path)
+    heads = get_all_heads_for_commits(repo_path)
+    headvals = heads.values()
+    # Just make sure that the default branch is first, the other order doesn't matter
+    def sortFunc(val):
+        return '0' if val['isdefault'] else val['sha']
+    headvals.sort(key=sortFunc)
 
     # Get the name of the main branch
 
     with metrics.record_counter('commits') as counter:
-        for response in authed_get_all_pages(
-                'commits',
-                'https://api.github.com/repos/{}/commits{}'.format(repo_path, query_string)
-        ):
-            commits = response.json()
-            extraction_time = singer.utils.now()
-            for commit in commits:
-                # Augment each commit with file-level diff data by hitting the commits endpoint with
-                # the individual commit hash.
-                # This is copied from the github documentation:
-                # Note: If there are more than 300 files in the commit diff, the response will
-                # include pagination link headers for the remaining files, up to a limit of 3000
-                # files. Each page contains the static commit information, and the only changes are
-                # to the file listing.
-                # TODO: if the changed file count exceeds 3000, then use the raw checkout to fetch
-                # this data.
+        for head in headvals:
+            # Use the SHA on the off chance a branch is deleted or a new commit comes in since we
+            # fetched the branch list.
+            headsha = head['sha']
 
-                # Hash of file addition that's too large, for testing
-                #if commit['sha'] != '836f0c47362e2f92f57ddee977df0f5c0da6d53b':
-                #    continue
-                # Hash of commit with file change that's too large, for testing
-                #if commit['sha'] != '1961e1b44e7c15b1f62f6da99b0e284b71d64048':
-                #    continue
+            # If the head commit has already been synced, then skip.
 
-                commit['files'] = []
-                for commit_detail in authed_get_all_pages(
-                    'commits',
-                    'https://api.github.com/repos/{}/commits/{}'.format(repo_path, commit['sha'])
-                ):
-                    # TODO: test fetching multiple pages of changed files if the changed file count
-                    # exceeds 300.
-                    detail_json = commit_detail.json()
-                    commit['stats'] = detail_json['stats']
-                    commit['files'].extend(detail_json['files'])
+            cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
+                .format(repo_path, headsha, bookmark)
+            while True:
+                # Get commits one page at a time
+                response = authed_get('commits', cururl)
+                yield response
+                commits = response.json()
+                extraction_time = singer.utils.now()
+                for commit in commits:
+                    get_commit_detail(commit, repo_path)
+                    commit['_sdc_repository'] = repo_path
+                    with singer.Transformer() as transformer:
+                        rec = transformer.transform(commit, schema, metadata=metadata.to_map(mdata))
+                    singer.write_record('commits', rec, time_extracted=extraction_time)
+                    singer.write_bookmark(state, repo_path, 'commits', {'since': singer.utils.strftime(extraction_time)})
+                    counter.increment()
 
-                # Iterate through each of the file changes and fetch the raw patch if it is missing
-                # because it is too big of a change
-                for commitFile in commit['files']:
-                    commitFile['isBinary'] = False
-                    commitFile['isLargeFile'] = False
-
-                    # Skip if there's already a patch
-                    if 'patch' in commitFile:
-                        continue
-                    # If no changes are showing, this is probably a binary file
-                    if commitFile['changes'] == 0 and commitFile['additions'] == 0 and \
-                            commitFile['deletions'] == 0:
-                        # Indicate that this file is binary if it's "modified" and the change
-                        # counts are zero. Change counts can be zero for other reasons with renames
-                        # and additions/deletions of empty files
-                        if commitFile['status'] == 'modified':
-                            commitFile['isBinary'] = True
-                        continue
-
-                    # Patch is missing for large file, get the urls of the current and previous
-                    # raw change blobs
-                    currentContentsUrl = commitFile['contents_url']
-
-                    for currentContents in authed_get_all_pages(
-                        'file_contents',
-                        currentContentsUrl
-                    ):
-                        currentContentsJson = currentContents.json()
-                        fileContent = currentContentsJson['content']
-                            # TODO: do we need to catch base64 decode errors in case file is binary?
-                        decodedFileContent = base64.b64decode(fileContent).decode("utf-8")
-                        # Will only be one page
-                        break
-
-                    # Get the previous contents if the file existed before (not added)
-                    decodedPreviousFileContent = ''
-                    if commitFile['status'] != 'added':
-                        contentPath = currentContentsUrl.split('?ref=')[0]
-                        # First parent is base, second parent is head
-                        baseSha = commit['parents'][0]['sha']
-                        previousContentsUrl = contentPath + '?ref=' + baseSha
-
-                        for previousContents in authed_get_all_pages(
-                            'file_contents',
-                            previousContentsUrl
-                        ):
-                            previousContentsJson = previousContents.json()
-                            previousFileContent = previousContentsJson['content']
-                            # TODO: do we need to catch base64 decode errors in case file is binary?
-                            decodedPreviousFileContent = base64.b64decode(previousFileContent).decode("utf-8")
-                            # Will only be one page
-                            break
-
-                    patch = create_patch_for_files(decodedFileContent, decodedPreviousFileContent)
-                    if len(patch) > LARGE_FILE_DIFF_THRESHOLD:
-                        commitFile['isLargeFile'] = True
-                    else:
-                        commitFile['patch'] = patch
-
-                commit['_sdc_repository'] = repo_path
-                with singer.Transformer() as transformer:
-                    rec = transformer.transform(commit, schema, metadata=metadata.to_map(mdata))
-                singer.write_record('commits', rec, time_extracted=extraction_time)
-                singer.write_bookmark(state, repo_path, 'commits', {'since': singer.utils.strftime(extraction_time)})
-                counter.increment()
+                if 'next' in response.links:
+                    cururl = response.links['next']['url']
+                else:
+                    break
 
     return state
 
