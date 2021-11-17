@@ -19,6 +19,7 @@ REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 KEY_PROPERTIES = {
     'branches': ['repo_name'],
     'commits': ['sha'],
+    'commit_files': ['id'],
     'comments': ['id'],
     'issues': ['id'],
     'assignees': ['id'],
@@ -1082,7 +1083,11 @@ def get_all_heads_for_commits(repo_path):
         head_set[val['base_sha']] = 1
     return head_set.keys()
 
-def get_commit_detail(commit, repo_path):
+# Diffs over this many bytes of text are dropped and instead replaced with a flag indicating that
+# the file is large.
+LARGE_FILE_DIFF_THRESHOLD = 1024 * 1024
+
+def get_commit_detail_api(commit, repo_path):
     '''
     # Augment each commit with overall stats and file-level diff data by hitting the commits
     # endpoint with the individual commit hash.
@@ -1116,9 +1121,8 @@ def get_commit_detail(commit, repo_path):
     # Iterate through each of the file changes and fetch the raw patch if it is missing
     # because it is too big of a change
     for commitFile in commit['files']:
-        commitFile['isBinary'] = False
-        commitFile['isLargeFile'] = False
-        commitFile['isError'] = False
+        commitFile['is_binary'] = False
+        commitFile['is_large_patch'] = False
 
         # Skip if there's already a patch
         if 'patch' in commitFile:
@@ -1130,7 +1134,7 @@ def get_commit_detail(commit, repo_path):
             # counts are zero. Change counts can be zero for other reasons with renames
             # and additions/deletions of empty files
             if commitFile['status'] == 'modified':
-                commitFile['isBinary'] = True
+                commitFile['is_binary'] = True
             continue
 
         # Patch is missing for large file, get the urls of the current and previous
@@ -1173,13 +1177,13 @@ def get_commit_detail(commit, repo_path):
 
             patch = create_patch_for_files(decodedPreviousFileContent, decodedFileContent)
             if len(patch) > LARGE_FILE_DIFF_THRESHOLD:
-                commitFile['isLargeFile'] = True
+                commitFile['is_large_patch'] = True
             else:
                 commitFile['patch'] = patch
         except NotFoundException as err:
             logger.info('Encountered 404 while fetching blob. Flagging as large file and ' \
                 'skipping. Original exception: ' + repr(err))
-            commitFile['isError'] = True
+            commitFile['is_large_patch'] = True
         except AuthException as err:
             # Original error:
             # {'message': 'This API returns blobs up to 1 MB in size. The requested blob is too
@@ -1189,12 +1193,30 @@ def get_commit_detail(commit, repo_path):
             # 'https://docs.github.com/rest/reference/repos#get-repository-content'}
             logger.info('Encountered 403 while fetching blob, which likely means it is too '\
                 'large. Treating as large file and skipping. Original excpetion: ' + repr(err))
-            commitFile['isLargeFile'] = True
+            commitFile['is_large_patch'] = True
 
+def get_commit_detail_local(commit, repo_path):
+    return False
 
-# Diffs over this many bytes of text are dropped and instead replaced with a flag indicating that
-# the file is large.
-LARGE_FILE_DIFF_THRESHOLD = 1024 * 1024
+def get_commit_changes(commit, repo_path):
+    success = get_commit_detail_local(commit, repo_path)
+    if not success:
+        get_commit_detail_api(commit, repo_path)
+
+        for commitFile in commit['files']:
+            if 'added' == commitFile['status']:
+                commitFile['changetype'] = 'add'
+            elif 'removed' == commitFile['status']:
+                commitFile['changetype'] = 'delete'
+            # 'renamed' takes precedence over 'modified' in github, so we need to determine if there
+            # was actually a change by looking at other fields.
+            elif commitFile['additions'] > 0 or commitFile['deletions'] > 0 or \
+                    commitFile['is_binary'] or commitFile['is_large_patch']:
+                commitFile['changetype'] = 'edit'
+            else:
+                commitFile['changetype'] = 'none'
+            commitFile['commit_sha'] = commit['sha']
+    return commit['files']
 
 def get_all_commits(schema, repo_path,  state, mdata, start_date):
     '''
@@ -1288,7 +1310,7 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date):
         bookmark = '1970-01-01'
 
     # Get the set of all commits we have fetched previously
-    fetchedCommits = get_bookmark(state, repo_path, "commits", "fetchedCommits")
+    fetchedCommits = get_bookmark(state, repo_path, "commit_files", "fetchedCommits")
     if not fetchedCommits:
         fetchedCommits = {}
     else:
@@ -1317,6 +1339,9 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date):
             # Maintain a list of parents we are waiting to see
             missingParents = {}
 
+            # TODO: pull this from the database to speed things up
+            # https://minware.atlassian.net/browse/MW-194
+
             cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
                 .format(repo_path, head, bookmark)
             while True:
@@ -1328,11 +1353,14 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date):
                     # Skip commits we've already imported
                     if commit['sha'] in fetchedCommits:
                         continue
-                    get_commit_detail(commit, repo_path)
-                    commit['_sdc_repository'] = repo_path
-                    with singer.Transformer() as transformer:
-                        rec = transformer.transform(commit, schema, metadata=metadata.to_map(mdata))
-                    singer.write_record('commits', rec, time_extracted=extraction_time)
+
+                    changedFiles = get_commit_changes(commit, repo_path)
+
+                    for changedFile in changedFiles:
+                        #commit['_sdc_repository'] = repo_path
+                        with singer.Transformer() as transformer:
+                            rec = transformer.transform(changedFile, schema, metadata=metadata.to_map(mdata))
+                        singer.write_record('commit_files', rec, time_extracted=extraction_time)
 
                     # Record that we have now fetched this commit
                     fetchedCommits[commit['sha']] = 1
@@ -1358,7 +1386,7 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date):
 
     # Don't write until the end so that we don't record fetchedCommits if we fail and never get
     # their parents.
-    singer.write_bookmark(state, repo_path, 'commits', {
+    singer.write_bookmark(state, repo_path, 'commit_files', {
         'since': singer.utils.strftime(extraction_time),
         'fetchedCommits': fetchedCommits
     })
