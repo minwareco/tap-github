@@ -1202,6 +1202,7 @@ def get_commit_detail_api(commit, repo_path):
 
 def get_commit_detail_local(commit, repo_path, gitLocal):
     try:
+        logger.info('getting diff for ' + commit['sha'])
         changes = gitLocal.getCommitDiff(repo_path, commit['sha'])
         commit['files'] = changes
     except Exception as e:
@@ -1238,7 +1239,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     '''
     https://developer.github.com/v3/repos/commits/#list-commits-on-a-repository
     '''
-
+    logger.info('A2')
     bookmark = get_bookmark(state, repo_path, "commits", "since", start_date)
     if not bookmark:
         bookmark = '1970-01-01'
@@ -1387,6 +1388,7 @@ async def get_all_commit_files(schema, repo_path,  state, mdata, start_date, git
             while True:
                 # Get commits one page at a time
                 if hasLocal:
+                    logger.info('getCommitsFromHead')
                     commits = gitLocal.getCommitsFromHead(repo_path, head)
                 else:
                     response = list(authed_get_yield('commits', cururl))[0]
@@ -1597,6 +1599,8 @@ async def do_sync(config, state, catalog):
     # get selected streams, make sure stream dependencies are met
     selected_stream_ids = get_selected_streams(catalog)
     validate_dependencies(selected_stream_ids)
+
+    logger.info(selected_stream_ids)
 
     repositories = list(filter(None, config['repository'].split(' ')))
 

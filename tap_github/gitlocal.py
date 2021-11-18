@@ -158,8 +158,14 @@ class GitLocal:
     # In case a previous run was killed in the middle of anything, do a hard reset of the repo
     # directory
     repoDir = self.getRepoWorkingDir(repo)
-    subprocess.run(['git', 'clean', '-fd'], cwd=repoDir, capture_output=True)
-    subprocess.run(['git', 'reset', '--hard'], cwd=repoDir, capture_output=True)
+
+    completed = subprocess.run(['git', 'status'], cwd=repoDir, capture_output=True)
+    if completed.stdout.find(b'nothing to commit, working tree clean') == -1:
+      sys.stderr.write('ax\n')
+      subprocess.run(['git', 'clean', '-fd'], cwd=repoDir, capture_output=True)
+      subprocess.run(['git', 'reset', '--hard'], cwd=repoDir, capture_output=True)
+    else:
+      sys.stderr.write('ay\n')
 
     self.INIT_REPO[repo] = True
 
@@ -225,12 +231,16 @@ class GitLocal:
     if success:
       return True
 
+    sys.stderr.write('b\n')
     # Now see if the ref is in the remote ref map
     refmap = self.lsRemote(repo)
+    sys.stderr.write('c\n')
     # If it is, fetch it
     if ref in refmap:
+      sys.stderr.write('d\n')
       self.fetchRemote(repo, ref)
 
+    sys.stderr.write('e\n')
     # Now try checking out the sha again
     success = self.checkoutCommit(repo, sha, False)
     return success
@@ -323,7 +333,7 @@ class GitLocal:
       raise GitLocalException("Diff of repo {}, sha {} failed with code {}, message: {}".format(
         repo, sha, completed.returncode, strippedOutput))
 
-    outstr = completed.stdout.decode('utf8')
+    outstr = completed.stdout.decode('ascii')
     lines = outstr.split('\n')
 
     parsed = parseDiffLines(lines)
