@@ -9,6 +9,7 @@ import singer.bookmarks as bookmarks
 import singer.metrics as metrics
 import base64
 import difflib
+import asyncio
 
 from .gitlocal import GitLocal
 
@@ -1210,6 +1211,7 @@ def get_commit_detail_local(commit, repo_path, gitLocal):
         raise e
 
 def get_commit_changes(commit, repo_path, useLocal, gitLocal):
+    logger.info('A: ' + commit['sha'])
     if useLocal:
         get_commit_detail_local(commit, repo_path, gitLocal)
     else:
@@ -1228,6 +1230,7 @@ def get_commit_changes(commit, repo_path, useLocal, gitLocal):
             else:
                 commitFile['changetype'] = 'none'
             commitFile['commit_sha'] = commit['sha']
+    logger.info('B: ' + commit['sha'])
     return commit['files']
 
 def get_all_commits(schema, repo_path,  state, mdata, start_date):
@@ -1316,7 +1319,20 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
 
     return state
 
-def get_all_commit_files(schema, repo_path,  state, mdata, start_date, gitLocal):
+async def get_commit_changes_async(commit, repo_path, hasLocal, gitLocal):
+    changedFiles = get_commit_changes(commit, repo_path, hasLocal, gitLocal)
+    return changedFiles
+
+async def getChangedfilesForCommits(commits, repo_path, hasLocal, gitLocal):
+    coros = []
+    for commit in commits:
+        changesCoro = asyncio.to_thread(get_commit_changes, commit, repo_path, hasLocal, gitLocal)
+        #changesCoro = get_commit_changes_async(commit, repo_path, hasLocal, gitLocal)
+        coros.append(changesCoro)
+    results = await asyncio.gather(*coros)
+    return results
+
+async def get_all_commit_files(schema, repo_path,  state, mdata, start_date, gitLocal):
     bookmark = get_bookmark(state, repo_path, "commit_files", "since", start_date)
     if not bookmark:
         bookmark = '1970-01-01'
@@ -1376,17 +1392,13 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date, gitLocal)
                     commits = response.json()
                 extraction_time = singer.utils.now()
                 logger.info('Processing {} commits'.format(len(commits)))
+                commitQ = []
                 for commit in commits:
                     # Skip commits we've already imported
                     if commit['sha'] in fetchedCommits:
                         continue
 
-                    changedFiles = get_commit_changes(commit, repo_path, hasLocal, gitLocal)
-
-                    for changedFile in changedFiles:
-                        with singer.Transformer() as transformer:
-                            rec = transformer.transform(changedFile, schema, metadata=metadata.to_map(mdata))
-                        singer.write_record('commit_files', rec, time_extracted=extraction_time)
+                    commitQ.append(commit)
 
                     # Record that we have now fetched this commit
                     fetchedCommits[commit['sha']] = 1
@@ -1398,6 +1410,19 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date, gitLocal)
                         if not parent['sha'] in fetchedCommits:
                             missingParents[parent['sha']] = 1
                     counter.increment()
+
+                # Run in batches
+                i = 0
+                BATCH_SIZE = 32
+                while i * BATCH_SIZE < len(commitQ):
+                    curQ = commitQ[i * BATCH_SIZE:(i + 1) * BATCH_SIZE]
+                    changedFileList = await getChangedfilesForCommits(curQ, repo_path, hasLocal, gitLocal)
+                    for changedFiles in changedFileList:
+                        for changedFile in changedFiles:
+                            with singer.Transformer() as transformer:
+                                rec = transformer.transform(changedFile, schema, metadata=metadata.to_map(mdata))
+                            singer.write_record('commit_files', rec, time_extracted=extraction_time)
+                    i += 1
 
                 # If there are no missing parents, then we are done prior to reaching the lst page
                 if not missingParents:
@@ -1556,7 +1581,7 @@ SUB_STREAMS = {
     'teams': ['team_members', 'team_memberships']
 }
 
-def do_sync(config, state, catalog):
+async def do_sync(config, state, catalog):
     access_token = config['access_token']
     session.headers.update({'authorization': 'token ' + access_token})
 
@@ -1609,7 +1634,7 @@ def do_sync(config, state, catalog):
                 # sync stream
                 if not sub_stream_ids:
                     if stream_id == 'commit_files':
-                        state = sync_func(stream_schema, repo, state, mdata, start_date, gitLocal)
+                        state = await sync_func(stream_schema, repo, state, mdata, start_date, gitLocal)
                     else:
                         state = sync_func(stream_schema, repo, state, mdata, start_date)
 
@@ -1638,7 +1663,10 @@ def main():
         do_discover(args.config)
     else:
         catalog = args.properties if args.properties else get_catalog()
-        do_sync(args.config, args.state, catalog)
+        asyncio.run(do_sync(args.config, args.state, catalog))
 
-if __name__ == '__main__':
+async def main2():
+    sys.stderr.write('asdf\n')
+
+if __name__ == "__main__":
     main()
