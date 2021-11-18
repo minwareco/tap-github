@@ -8,6 +8,9 @@ import singer
 import singer.bookmarks as bookmarks
 import singer.metrics as metrics
 import base64
+import difflib
+
+from .gitlocal import GitLocal
 
 from singer import metadata
 
@@ -1075,13 +1078,13 @@ def get_all_heads_for_commits(repo_path):
     # Now build a set of all potential heads
     head_set = {}
     for key, val in BRANCH_CACHE[repo_path].items():
-        head_set[val['sha']] = 1
+        head_set[val['sha']] = 'refs/heads/' + val['name']
     for key, val in PR_CACHE[repo_path].items():
-        head_set[val['head_sha']] = 1
+        head_set[val['head_sha']] = 'refs/pull/' + val['pr_num'] + '/head'
         # There could be a PR into a branch that has since been deleted and this is our only record
         # of its head, so include it
-        head_set[val['base_sha']] = 1
-    return head_set.keys()
+        head_set[val['base_sha']] = 'refs/heads/' + val['base_ref']
+    return head_set
 
 # Diffs over this many bytes of text are dropped and instead replaced with a flag indicating that
 # the file is large.
@@ -1132,7 +1135,8 @@ def get_commit_detail_api(commit, repo_path):
                 commitFile['deletions'] == 0:
             # Indicate that this file is binary if it's "modified" and the change
             # counts are zero. Change counts can be zero for other reasons with renames
-            # and additions/deletions of empty files
+            # and additions/deletions of empty files.
+            # Note: this will be wrong if there is a pure mode change
             if commitFile['status'] == 'modified':
                 commitFile['is_binary'] = True
             continue
@@ -1195,12 +1199,20 @@ def get_commit_detail_api(commit, repo_path):
                 'large. Treating as large file and skipping. Original excpetion: ' + repr(err))
             commitFile['is_large_patch'] = True
 
-def get_commit_detail_local(commit, repo_path):
-    return False
+def get_commit_detail_local(commit, repo_path, gitLocal):
+    try:
+        changes = gitLocal.getCommitDiff(repo_path, commit['sha'])
+        commit['files'] = changes
+    except Exception as e:
+        # This generally shouldn't happen since we've already fetched and checked out the head
+        # commit successfully, so it probably indicates some sort of system error. Just let it
+        # bubbl eup for now.
+        raise e
 
-def get_commit_changes(commit, repo_path):
-    success = get_commit_detail_local(commit, repo_path)
-    if not success:
+def get_commit_changes(commit, repo_path, useLocal, gitLocal):
+    if useLocal:
+        get_commit_detail_local(commit, repo_path, gitLocal)
+    else:
         get_commit_detail_api(commit, repo_path)
 
         for commitFile in commit['files']:
@@ -1249,7 +1261,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     extraction_time = singer.utils.now()
 
     with metrics.record_counter('commits') as counter:
-        for head in heads:
+        for head, headRef in heads:
             # If the head commit has already been synced, then skip.
             if head in fetchedCommits:
                 continue
@@ -1304,7 +1316,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
 
     return state
 
-def get_all_commit_files(schema, repo_path,  state, mdata, start_date):
+def get_all_commit_files(schema, repo_path,  state, mdata, start_date, gitLocal):
     bookmark = get_bookmark(state, repo_path, "commit_files", "since", start_date)
     if not bookmark:
         bookmark = '1970-01-01'
@@ -1330,34 +1342,48 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date):
     # Set this here for updating the state when we don't run any queries
     extraction_time = singer.utils.now()
 
-    with metrics.record_counter('commits') as counter:
+    with metrics.record_counter('commit_files') as counter:
         for head in heads:
+            headRef = heads[head]
             # If the head commit has already been synced, then skip.
             if head in fetchedCommits:
                 continue
 
+            logger.info('Getting files for head {} {}'.format(headRef, head))
+
             # Maintain a list of parents we are waiting to see
             missingParents = {}
 
-            # TODO: pull this from the database to speed things up
-            # https://minware.atlassian.net/browse/MW-194
+            # Attempt to checkout the head ref
+            # NOTE: This doesn't use our rate limit at all, which is nice!
+            FORCE_API = False
+            if FORCE_API:
+                hasLocal = False
+            else:
+                hasLocal = gitLocal.fetchRef(repo_path, headRef, head)
+                if not hasLocal:
+                    # Will fall back to using github's API
+                    logger.info('FAILED to fetch ref {}/{}/{}'.format(repo_path, headRef, head))
 
             cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
                 .format(repo_path, head, bookmark)
             while True:
                 # Get commits one page at a time
-                response = list(authed_get_yield('commits', cururl))[0]
-                commits = response.json()
+                if hasLocal:
+                    commits = gitLocal.getCommitsFromHead(repo_path, head)
+                else:
+                    response = list(authed_get_yield('commits', cururl))[0]
+                    commits = response.json()
                 extraction_time = singer.utils.now()
+                logger.info('Processing {} commits'.format(len(commits)))
                 for commit in commits:
                     # Skip commits we've already imported
                     if commit['sha'] in fetchedCommits:
                         continue
 
-                    changedFiles = get_commit_changes(commit, repo_path)
+                    changedFiles = get_commit_changes(commit, repo_path, hasLocal, gitLocal)
 
                     for changedFile in changedFiles:
-                        #commit['_sdc_repository'] = repo_path
                         with singer.Transformer() as transformer:
                             rec = transformer.transform(changedFile, schema, metadata=metadata.to_map(mdata))
                         singer.write_record('commit_files', rec, time_extracted=extraction_time)
@@ -1376,7 +1402,7 @@ def get_all_commit_files(schema, repo_path,  state, mdata, start_date):
                 # If there are no missing parents, then we are done prior to reaching the lst page
                 if not missingParents:
                     break
-                elif 'next' in response.links:
+                elif not hasLocal and 'next' in response.links:
                     cururl = response.links['next']['url']
                 # Else if we have reached the end of our data but not found the parents, then we
                 # have a problem
@@ -1534,6 +1560,11 @@ def do_sync(config, state, catalog):
     access_token = config['access_token']
     session.headers.update({'authorization': 'token ' + access_token})
 
+    gitLocal = GitLocal({
+        'access_token': access_token,
+        'workingDir': '/tmp'
+    })
+
     start_date = config['start_date'] if 'start_date' in config else None
     # get selected streams, make sure stream dependencies are met
     selected_stream_ids = get_selected_streams(catalog)
@@ -1577,7 +1608,10 @@ def do_sync(config, state, catalog):
 
                 # sync stream
                 if not sub_stream_ids:
-                    state = sync_func(stream_schema, repo, state, mdata, start_date)
+                    if stream_id == 'commit_files':
+                        state = sync_func(stream_schema, repo, state, mdata, start_date, gitLocal)
+                    else:
+                        state = sync_func(stream_schema, repo, state, mdata, start_date)
 
                 # handle streams with sub streams
                 else:
