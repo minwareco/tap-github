@@ -1211,7 +1211,6 @@ def get_commit_detail_local(commit, repo_path, gitLocal):
         raise e
 
 def get_commit_changes(commit, repo_path, useLocal, gitLocal):
-    logger.info('A: ' + commit['sha'])
     if useLocal:
         get_commit_detail_local(commit, repo_path, gitLocal)
     else:
@@ -1230,7 +1229,6 @@ def get_commit_changes(commit, repo_path, useLocal, gitLocal):
             else:
                 commitFile['changetype'] = 'none'
             commitFile['commit_sha'] = commit['sha']
-    logger.info('B: ' + commit['sha'])
     return commit['files']
 
 def get_all_commits(schema, repo_path,  state, mdata, start_date):
