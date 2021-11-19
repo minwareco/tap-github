@@ -1202,7 +1202,6 @@ def get_commit_detail_api(commit, repo_path):
 
 def get_commit_detail_local(commit, repo_path, gitLocal):
     try:
-        logger.info('getting diff for ' + commit['sha'])
         changes = gitLocal.getCommitDiff(repo_path, commit['sha'])
         commit['files'] = changes
     except Exception as e:
@@ -1365,6 +1364,7 @@ async def get_all_commit_files(schema, repo_path,  state, mdata, start_date, git
             headRef = heads[head]
             # If the head commit has already been synced, then skip.
             if head in fetchedCommits:
+                logger.info('Head already fetched {} {}'.format(headRef, head))
                 continue
 
             logger.info('Getting files for head {} {}'.format(headRef, head))
@@ -1388,13 +1388,11 @@ async def get_all_commit_files(schema, repo_path,  state, mdata, start_date, git
             while True:
                 # Get commits one page at a time
                 if hasLocal:
-                    logger.info('getCommitsFromHead')
                     commits = gitLocal.getCommitsFromHead(repo_path, head)
                 else:
                     response = list(authed_get_yield('commits', cururl))[0]
                     commits = response.json()
                 extraction_time = singer.utils.now()
-                logger.info('Processing {} commits'.format(len(commits)))
                 commitQ = []
                 for commit in commits:
                     # Skip commits we've already imported
@@ -1414,9 +1412,11 @@ async def get_all_commit_files(schema, repo_path,  state, mdata, start_date, git
                             missingParents[parent['sha']] = 1
                     counter.increment()
 
+                logger.info('Processing {} commits'.format(len(commitQ)))
+
                 # Run in batches
                 i = 0
-                BATCH_SIZE = 32
+                BATCH_SIZE = 64
                 if not hasLocal:
                     BATCH_SIZE = 1
                 while i * BATCH_SIZE < len(commitQ):
