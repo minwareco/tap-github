@@ -1368,16 +1368,13 @@ async def get_all_commit_files(schema, repo_path,  state, mdata, start_date, git
             # Maintain a list of parents we are waiting to see
             missingParents = {}
 
-            # Attempt to checkout the head ref
-            # NOTE: This doesn't use our rate limit at all, which is nice!
-            FORCE_API = False
-            if FORCE_API:
-                hasLocal = False
-            else:
-                hasLocal = gitLocal.fetchRef(repo_path, headRef, head)
-                if not hasLocal:
-                    # Will fall back to using github's API
-                    logger.info('FAILED to fetch ref {}/{}/{}'.format(repo_path, headRef, head))
+            # Verify that this commit exists in our mirrored repo
+            hasLocal = gitLocal.hasLocalCommit(repo_path, head)
+            if not hasLocal:
+                logger.warning('MISSING REF/COMMIT {}/{}/{}'.format(repo_path, headRef, head))
+                # Skip this now that we're mirroring everything. We shouldn't have anything that's
+                # missing from github's API
+                continue
 
             cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
                 .format(repo_path, head, bookmark)
