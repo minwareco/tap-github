@@ -1421,7 +1421,7 @@ async def get_all_commit_files(schema, repo_path,  state, mdata, start_date, git
 
         # Run in batches
         i = 0
-        BATCH_SIZE = 256
+        BATCH_SIZE = 512
         PRINT_INTERVAL = 1
         hasLocal = True # Only local now
         while i * BATCH_SIZE < len(commitQ):
