@@ -1446,7 +1446,7 @@ async def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gi
         totalCommits = len(commitQ)
         finishedCount = 0
         while len(commitQ) > 0:
-            # Slice off the queue to avoid memory leads
+            # Slice off the queue to avoid memory leaks
             curQ = commitQ[0:BATCH_SIZE]
             commitQ = commitQ[BATCH_SIZE:]
             changedFileList = await getChangedfilesForCommits(curQ, repo_path, hasLocal, gitLocal)
