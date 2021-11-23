@@ -10,6 +10,7 @@ import singer.metrics as metrics
 import base64
 import difflib
 import asyncio
+import psutil
 
 from .gitlocal import GitLocal
 
@@ -1364,7 +1365,9 @@ async def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gi
         for headRef in heads:
             count += 1
             if count % 10 == 0:
-                logger.info('Processed heads {}/{}'.format(count, len(heads)))
+                process = psutil.Process(os.getpid())
+                logger.info('Processed heads {}/{}, {} bytes'.format(count, len(heads),
+                    process.memory_info().rss))
             headSha = heads[headRef]
             # If the head commit has already been synced, then skip.
             if headSha in fetchedCommits:
@@ -1440,7 +1443,7 @@ async def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gi
 
         # Run in batches
         i = 0
-        BATCH_SIZE = 512
+        BATCH_SIZE = 128
         PRINT_INTERVAL = 1
         hasLocal = True # Only local now
         totalCommits = len(commitQ)
@@ -1459,7 +1462,9 @@ async def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gi
 
             finishedCount += BATCH_SIZE
             if i % (BATCH_SIZE * PRINT_INTERVAL) == 0:
-                logger.info('Imported {}/{} commits'.format(finishedCount, totalCommits))
+                process = psutil.Process(os.getpid())
+                logger.info('Imported {}/{} commits, {} bytes'.format(finishedCount, totalCommits,
+                    process.memory_info().rss))
 
     # Don't write until the end so that we don't record fetchedCommits if we fail and never get
     # their parents.
