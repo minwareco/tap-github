@@ -1276,6 +1276,8 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     # Set this here for updating the state when we don't run any queries
     extraction_time = singer.utils.now()
 
+    saveFetchedCommits = fetchedCommits.copy()
+
     with metrics.record_counter('commits') as counter:
         for head in heads:
             # If the head commit has already been synced, then skip.
@@ -1292,10 +1294,15 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                 response = list(authed_get_yield('commits', cururl))[0]
                 commits = response.json()
                 extraction_time = singer.utils.now()
+                foundFetchedCommit = None
+                numNewCommits = 0
                 for commit in commits:
-                    # Skip commits we've already imported
+                    # Skip commits we've already imported, and if we've imported a commit, then
+                    # we've also imported all of its parents, so break the loop
                     if commit['sha'] in fetchedCommits:
-                        continue
+                        foundFetchedCommit = commit['sha']
+                        break
+                    numNewCommits += 1
                     commit['_sdc_repository'] = repo_path
                     with singer.Transformer() as transformer:
                         rec = transformer.transform(commit, schema, metadata=metadata.to_map(mdata))
@@ -1312,9 +1319,28 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                             missingParents[parent['sha']] = 1
                     counter.increment()
 
+                # Save a record of the first sha on the page, recording the number of commits that
+                # are behind it and omitted.
+                if foundFetchedCommit:
+                    oldCommitsSinceSaved = fetchedCommits[foundFetchedCommit]
+                    newCommitsSinceSaved = oldCommitsSinceSaved + numNewCommits
+                    if newCommitsSinceSaved < 100:
+                        # Delete the previous bookmark and include its commits in the new one
+                        del saveFetchedCommits[foundFetchedCommit]
+                    else:
+                        # Leave the old bookmark in place and only include th enew commits
+                        newCommitsSinceSaved = numNewCommits
+                else:
+                    newCommitsSinceSaved = numNewCommits
+                firstCommitSha = commits[0]['sha'] if len(commits) > 0 else None
+                saveFetchedCommits[firstCommitSha] = newCommitsSinceSaved
+
                 # If there are no missing parents, then we are done prior to reaching the lst page
                 if not missingParents:
                     break
+                elif foundFetchedCommit:
+                    raise GithubException('Found fetched commit, but parents still missing: ' + \
+                        ','.join(missingParents.keys()))
                 elif 'next' in response.links:
                     cururl = response.links['next']['url']
                 # Else if we have reached the end of our data but not found the parents, then we
@@ -1327,7 +1353,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     # their parents.
     singer.write_bookmark(state, repo_path, 'commits', {
         'since': singer.utils.strftime(extraction_time),
-        'fetchedCommits': fetchedCommits
+        'fetchedCommits': saveFetchedCommits
     })
 
     return state
