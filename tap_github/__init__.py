@@ -1261,42 +1261,66 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     https://developer.github.com/v3/repos/commits/#list-commits-on-a-repository
     '''
 
-    bookmark = get_bookmark(state, repo_path, "commits", "since", start_date)
-    if not bookmark:
-        bookmark = '1970-01-01'
+    #bookmark = get_bookmark(state, repo_path, "commits", "since", start_date)
+    #if not bookmark:
+    #    bookmark = '1970-01-01'
 
-    # Get the set of all commits we have fetched previously
-    fetchedCommits = get_bookmark(state, repo_path, "commits", "fetchedCommits")
-    if not fetchedCommits:
-        fetchedCommits = {}
-    else:
+    # We don't want to use the time-based bookmark because it could skip commits
+    # that are pushed after they are committed. So, alawys reset the 'since' bookmark back
+    # to the beginning of time
+    bookmark = '1970-01-01'
+
+    # Get the set of commits we have fetched previously that have been saved
+    #origfetchedCommits = get_bookmark(state, repo_path, "commits", "fetchedCommits")
+    #if not origfetchedCommits:
+    #    origfetchedCommits = {}
+    #else:
         # We have run previously, so we don't want to use the time-based bookmark becuase it could
         # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
         # to the beginning of time and rely solely on the fetchedCommits bookmark.
-        bookmark = '1970-01-01'
+    #    bookmark = '1970-01-01'
 
     # We don't want newly fetched commits to update the state if we fail partway through, because
     # this could lead to commits getting marked as fetched when their parents are never fetched. So,
     # copy the dict.
-    fetchedCommits = fetchedCommits.copy()
+    #fetchedCommits = fetchedCommits.copy() # Jon is asking: Why do we need this??? TBD
 
-    # Get all of the branch heads to use for querying commits
+    # Get the list of commits associated with each head that have been fetched in state
+    fetchedHeads = get_bookmark(state, repo_path, "commits", "fetchedHeads")
+    if not fetchedHeads:
+        fetchedHeads = {}
+
+    # Also get the marker commits at the end of each page that have been fetched in state
+    commitMarkers = get_bookmark(state, repo_path, "commits", "commitMarkers")
+    if not commitMarkers:
+        commitMarkers = {}
+
+    # Build a combined dict of commits that have already been fetched
+    fetchedCommits = fetchedHeads | commitMarkers
+
+    # Get all of the current branch heads to use for querying commits
     heads = get_all_heads_for_commits(repo_path)
 
     # Set this here for updating the state when we don't run any queries
     extraction_time = singer.utils.now()
-
+    newHeads = []
+    
     with metrics.record_counter('commits') as counter:
         for head in heads:
             # If the head commit has already been synced, then skip.
+            # This means that all the commits before this one have already been imported
             if head in fetchedCommits:
                 continue
 
-            # Maintain a list of parents we are waiting to see
-            missingParents = {}
-
+            #Fetch all the new heads 
+            newHeads.append(head)
+            
             cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
                 .format(repo_path, head, bookmark)
+
+            # Maintain a list of parents we are waiting to see
+            missingParents = {}
+            fetchedMarkers = []
             pagenum = 0
             while True:
                 # Get commits one page at a time
@@ -1328,17 +1352,27 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
 
                 commits = response.json()
                 extraction_time = singer.utils.now()
+                fetchedParents = []
                 for commit in commits:
                     # Skip commits we've already imported
+                    # We assume that all the parents of fetched commit also were fetched
                     if commit['sha'] in fetchedCommits:
+                        #Remove any commit that's already been imported
+                        # and save the list of its parents to be removed afterwards
+                        for parent in commit['parents']:
+                            fetchedParents.append(parent['sha'])
                         continue
+                    #Remove all of the parents of commit that's already been imported
+                    if commit['sha'] in fetchedParents:
+                        continue
+                    
+                    # If the commit is not in the fetched commits,
+                    # keep going through all of the commits and save them to the singer
                     commit['_sdc_repository'] = repo_path
                     with singer.Transformer() as transformer:
                         rec = transformer.transform(commit, schema, metadata=metadata.to_map(mdata))
                     singer.write_record('commits', rec, time_extracted=extraction_time)
 
-                    # Record that we have now fetched this commit
-                    fetchedCommits[commit['sha']] = 1
                     # No longer a missing parent
                     missingParents.pop(commit['sha'], None)
 
@@ -1346,7 +1380,13 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                     for parent in commit['parents']:
                         if not parent['sha'] in fetchedCommits:
                             missingParents[parent['sha']] = 1
+
                     counter.increment()
+
+                    #fetch (save in state for the next time) the last commit (every 100 commits)
+                    if commit == commits[-1]:
+                        #add commit to the fetchedMarkers
+                        fetchedMarkers.append(commit['sha'])
 
                 # If there are no missing parents, then we are done prior to reaching the lst page
                 if not missingParents:
@@ -1359,11 +1399,12 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                     raise GithubException('Some commit parents never found: ' + \
                         ','.join(missingParents.keys()))
 
-    # Don't write until the end so that we don't record fetchedCommits if we fail and never get
+    # Don't write until the end so that we don't record fetchedMarkers if we fail and never get
     # their parents.
     singer.write_bookmark(state, repo_path, 'commits', {
         'since': singer.utils.strftime(extraction_time),
-        'fetchedCommits': fetchedCommits
+        'fetchedMarkers': fetchedMarkers,
+        'fetchedHeads': newHeads
     })
 
     return state
