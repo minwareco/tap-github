@@ -1283,7 +1283,9 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     # We don't want newly fetched commits to update the state if we fail partway through, because
     # this could lead to commits getting marked as fetched when their parents are never fetched. So,
     # copy the dict.
+    ##### ------ ??????????????????????????????????????? ------------------
     #fetchedCommits = fetchedCommits.copy() # Jon is asking: Why do we need this??? TBD
+    ##### ------ ??????????????????????????????????????? ------------------
 
     # Get the list of commits associated with each head that have been fetched in state
     fetchedHeads = get_bookmark(state, repo_path, "commits", "fetchedHeads")
@@ -1353,6 +1355,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                 commits = response.json()
                 extraction_time = singer.utils.now()
                 fetchedParents = []
+                lastCommitInPage = commits[-1] # Just for not doing this every cycle
                 for commit in commits:
                     # Skip commits we've already imported
                     # We assume that all the parents of fetched commit also were fetched
@@ -1384,7 +1387,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                     counter.increment()
 
                     #fetch (save in state for the next time) the last commit (every 100 commits)
-                    if commit == commits[-1]:
+                    if commit == lastCommitInPage:
                         #add commit to the fetchedMarkers
                         fetchedMarkers.append(commit['sha'])
 
