@@ -416,7 +416,6 @@ def fetch_installations():
     the session.
     '''
     logger.info('Fetching installations')
-    session.headers.update({'per_page': '1', 'page': '1'})
 
     # This obviously won't scale. As one step toward scaling, we may want to cache this mapping in
     # the state file and only fetch new ones. As a long-term solution, we will need to maintain a
