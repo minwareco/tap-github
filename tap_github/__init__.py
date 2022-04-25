@@ -486,7 +486,7 @@ def refresh_app_token(pem=None, appid=None, org=None):
     installation_id = cached_installations[org]
     installation_token = get_installation_token(installation_id)
 
-    # Now we have a token we can just the same way that we use a personal access token
+    # Now we have a token we can just use the same way that we use a personal access token
     # Expired token for testing:
     #installation_token = 'ghs_IIfqB0qB286kuZkFdLQYcznyTEToYG3YGAxJ'
 
