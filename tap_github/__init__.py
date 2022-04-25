@@ -379,12 +379,42 @@ def get_catalog():
 
     return {'streams': streams}
 
+def generate_jwt(config):
+    secret = config['app_pem']
+    algorithm = "RS256"
+    now = int(time.time())
+
+    encoded_jwt = jwt.encode({
+        # issued at time, 60 seconds in the past to allow for clock drift
+        "iat": now - 60,
+        # JWT expiration time (10 minute maximum)
+        "exp": now + (10 * 60),
+        # GitHub App's identifier
+        "iss": config['app_id']
+    }, secret, algorithm)
+
+    return encoded_jwt
+
+
+def fetch_installations():
+    '''
+    Before this function is called, an authorization header with a JWT bearer token should be set in
+    the session.
+    '''
+
+cached_installations
 def set_auth_headers(config):
     access_token = config['access_token']
+    # If we don't have a personal access token, use the github app
     if not access_token or len(access_token) == 0:
-        # Fallback on appid and pem if access token isn't set
-        app_id = config['app_id']
-        app_pem = config['app_pem']
+        # Set HTTP authorization to JWT
+        jwt = generate_jwt(config)
+        session.headers.update({'authorization': 'Bearer ' + jwt})
+        # Get all installations
+        if not cached_installations:
+            cached_installations = fetch_installations()
+
+
     session.headers.update({'authorization': 'token ' + access_token})
 
     return access_token
@@ -1767,7 +1797,7 @@ def main():
         do_discover(args.config)
     else:
         catalog = args.properties if args.properties else get_catalog()
-        do_sync(args.config, args.state, catalog)
+        #do_sync(args.config, args.state, catalog)
 
 if __name__ == "__main__":
     main()
