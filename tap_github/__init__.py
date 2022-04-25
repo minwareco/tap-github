@@ -13,6 +13,7 @@ import asyncio
 import psutil
 import gc
 import debugpy
+import jwt
 
 DEBUG = False
 if DEBUG:
@@ -378,6 +379,17 @@ def get_catalog():
 
     return {'streams': streams}
 
+def set_auth_headers(config):
+    access_token = config['access_token']
+    if not access_token or len(access_token) == 0:
+        # Fallback on appid and pem if access token isn't set
+        app_id = config['app_id']
+        app_pem = config['app_pem']
+    session.headers.update({'authorization': 'token ' + access_token})
+
+    return access_token
+
+
 def verify_repo_access(url_for_repo, repo):
     try:
         authed_get("verifying repository access", url_for_repo)
@@ -387,9 +399,6 @@ def verify_repo_access(url_for_repo, repo):
         raise NotFoundException(message) from None
 
 def verify_access_for_repo(config):
-
-    access_token = config['access_token']
-    session.headers.update({'authorization': 'token ' + access_token, 'per_page': '1', 'page': '1'})
 
     repositories = list(filter(None, config['repository'].split(' ')))
 
@@ -1672,8 +1681,7 @@ SUB_STREAMS = {
 }
 
 def do_sync(config, state, catalog):
-    access_token = config['access_token']
-    session.headers.update({'authorization': 'token ' + access_token})
+    access_token = set_auth_headers(config)
 
     gitLocal = GitLocal({
         'access_token': access_token,
