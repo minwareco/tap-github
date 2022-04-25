@@ -1,5 +1,4 @@
 import argparse
-from gettext import install
 import os
 import json
 import collections
