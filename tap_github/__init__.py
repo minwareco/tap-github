@@ -401,8 +401,10 @@ def fetch_installations():
     Before this function is called, an authorization header with a JWT bearer token should be set in
     the session.
     '''
+    logger.info('Fetching installations')
+    return []
 
-cached_installations
+cached_installations = False
 def set_auth_headers(config):
     access_token = config['access_token']
     # If we don't have a personal access token, use the github app
@@ -417,6 +419,7 @@ def set_auth_headers(config):
 
     session.headers.update({'authorization': 'token ' + access_token})
 
+    sys.exit(0)
     return access_token
 
 
@@ -1797,7 +1800,7 @@ def main():
         do_discover(args.config)
     else:
         catalog = args.properties if args.properties else get_catalog()
-        #do_sync(args.config, args.state, catalog)
+        do_sync(args.config, args.state, catalog)
 
 if __name__ == "__main__":
     main()

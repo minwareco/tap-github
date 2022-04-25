@@ -14,7 +14,8 @@ setup(name='tap-github',
           'requests==2.20.0',
           'psutil==5.8.0',
           'debugpy==1.5.1',
-          'PyJWT==2.3.0'
+          'PyJWT==2.3.0',
+          'cryptography==36.0.2'
       ],
       extras_require={
           'dev': [
