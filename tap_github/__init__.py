@@ -504,7 +504,6 @@ def getReposForOrg(org):
             namesplit = repo['full_name'].split('/')
             orgRepos.append(org + '/' + namesplit[1])
 
-    logger.info(orgRepos)
     return orgRepos
 
 def set_auth_headers(config, repo):
