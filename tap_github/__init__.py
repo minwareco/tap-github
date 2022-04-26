@@ -435,7 +435,7 @@ def fetch_installations():
 
 def get_installation_token(installation_id):
     '''
-    Just always get a new token here for now instead of caching if one already exists
+    For now, just get a new token here for now instead of caching if one already exists.
     '''
     response = authed_get(
         'installation_token',
@@ -487,13 +487,23 @@ def refresh_app_token(pem=None, appid=None, org=None):
     installation_token = get_installation_token(installation_id)
 
     # Now we have a token we can just use the same way that we use a personal access token
-    # Expired token for testing:
-    #installation_token = 'ghs_IIfqB0qB286kuZkFdLQYcznyTEToYG3YGAxJ'
 
     # Update session auth headers to use this token
     session.headers.update({'authorization': 'token ' + installation_token})
     return installation_token
 
+def getReposForOrg(org):
+    orgRepos = []
+    for response in authed_get_all_pages(
+        'installation_repositories',
+        'https://api.github.com/installation/repositories?per_page=100'
+    ):
+        repos = response.json()
+        for repo in repos['repositories']:
+            orgRepos.append(repo['full_name'])
+
+    logger.info(orgRepos)
+    return orgRepos
 
 def set_auth_headers(config, repo):
     access_token = config['access_token']
@@ -1828,8 +1838,20 @@ def do_sync(config, state, catalog):
             return val['tap_stream_id']
     catalog['streams'].sort(key=schemaSortFunc)
 
-    #pylint: disable=too-many-nested-blocks
+    # Expand org/*
+    allRepos = []
     for repo in repositories:
+        repoSplit = repo.split('/')
+        if repoSplit[1] == '*':
+            access_token = set_auth_headers(config, repo)
+            orgRepos = getReposForOrg(repoSplit[0])
+            allRepos.extend(orgRepos)
+        else:
+            allRepos.append(repo)
+
+
+    #pylint: disable=too-many-nested-blocks
+    for repo in allRepos:
         logger.info("Starting sync of repository: %s", repo)
 
         access_token = set_auth_headers(config, repo)
