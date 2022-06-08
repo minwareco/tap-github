@@ -288,7 +288,7 @@ def authed_get(source, url, headers={}, overrideMethod='get'):
             except requests.exceptions.RequestException as err:
                 if network_retry_count <= network_max_retries:
                     network_retry_count += 1
-                    logger.warning('Network request error while requesting URL (attempt {}): {}'.format(url, network_retry_count))
+                    logger.warning('Network request error ({}) while requesting URL (attempt {}): {}'.format(type(err).__name__, network_retry_count, url))
                     logger.info('Retrying in {} seconds'.format(network_retry_count * 30))
                     time.sleep(network_retry_count * 30) # simple linear back-off
                 else:
