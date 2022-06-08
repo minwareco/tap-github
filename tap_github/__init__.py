@@ -4,7 +4,6 @@ import json
 import collections
 import time
 import requests
-import logging
 import singer
 import singer.bookmarks as bookmarks
 import singer.metrics as metrics
