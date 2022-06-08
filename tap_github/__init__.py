@@ -255,7 +255,7 @@ def authed_get(source, url, headers={}, overrideMethod='get'):
         retry_time = 0
         just_refreshed_token = False
         network_retry_count = 0
-        network_max_retries = 3
+        network_max_retries = 5
         while True:
             try:
                 resp = session.request(method=overrideMethod, url=url)
@@ -289,8 +289,8 @@ def authed_get(source, url, headers={}, overrideMethod='get'):
                 if network_retry_count <= network_max_retries:
                     network_retry_count += 1
                     logger.warning('Network request error while requesting URL (attempt {}): {}'.format(url, network_retry_count))
-                    logger.info('Retrying in {} seconds'.format(network_retry_count))
-                    time.sleep(network_retry_count) # simple linear back-off
+                    logger.info('Retrying in {} seconds'.format(network_retry_count * 30))
+                    time.sleep(network_retry_count * 30) # simple linear back-off
                 else:
                     logger.error('Max retries reached for network request of URL: {}'.format(url))
                     raise err
