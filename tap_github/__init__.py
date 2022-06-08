@@ -255,8 +255,8 @@ def authed_get(source, url, headers={}, overrideMethod='get'):
         session.headers.update(headers)
         retry_time = 0
         just_refreshed_token = False
-        network_attempt_count = 1
-        network_max_attempts = 3
+        network_retry_count = 0
+        network_max_retries = 3
         while True:
             try:
                 resp = session.request(method=overrideMethod, url=url)
@@ -287,11 +287,13 @@ def authed_get(source, url, headers={}, overrideMethod='get'):
             # requests.exceptions.RequestException is the base class for all exceptions coming out of
             # the `requests` package, so we can target its errors specifically
             except requests.exceptions.RequestException as err:
-                if network_attempt_count < network_max_attempts:
-                    logger.warning('Network request error while requesting URL (attempt {}): {}'.format(url, network_attempt_count))
-                    network_attempt_count += 1
+                if network_retry_count <= network_max_retries:
+                    network_retry_count += 1
+                    logger.warning('Network request error while requesting URL (attempt {}): {}'.format(url, network_retry_count))
+                    logger.info('Retrying in {} seconds'.format(network_retry_count))
+                    time.sleep(network_retry_count) # simple linear back-off
                 else:
-                    logger.error('Max attempts reached for network request of URL: {}'.format(url))
+                    logger.error('Max retries reached for network request of URL: {}'.format(url))
                     raise err
 
         timer.tags[metrics.Tag.http_status_code] = resp.status_code
