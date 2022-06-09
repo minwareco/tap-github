@@ -1876,6 +1876,8 @@ def do_sync(config, state, catalog):
     start_date = config['start_date'] if 'start_date' in config else None
     process_globals = config['process_globals'] if 'process_globals' in config else True
 
+    logger.info('Process globals = {}'.format(str(process_globals)))
+
     # get selected streams, make sure stream dependencies are met
     selected_stream_ids = get_selected_streams(catalog)
     validate_dependencies(selected_stream_ids)
