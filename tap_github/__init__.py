@@ -730,8 +730,6 @@ def get_all_events(schemas, repo_path, state, mdata, start_date):
     CURRENT_EVENTS_VERSION = '1.0'
     bookmark_value = get_bookmark(state, repo_path, "events", "since", start_date)
     bookmark_version = get_bookmark(state, repo_path, "events", "version")
-    logger.info(bookmark_value)
-    logger.info(bookmark_version)
     if bookmark_value and bookmark_version == CURRENT_EVENTS_VERSION:
         bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
     else:
