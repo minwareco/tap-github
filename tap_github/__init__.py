@@ -1012,8 +1012,6 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
     cur_cache = {}
     PR_CACHE[repo_path] = cur_cache
 
-    return state
-
     bookmark_value = get_bookmark(state, repo_path, "pull_requests", "since", start_date)
     if bookmark_value:
         bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
