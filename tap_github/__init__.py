@@ -529,7 +529,6 @@ def getReposForOrg(org):
             # Preserve the case used for the org name originally
             namesplit = repo['full_name'].split('/')
             orgRepos.append(org + '/' + namesplit[1])
-            logger.info("Adding repo: %s", org + '/' + namesplit[1])
             repo_cache[repo['full_name']] = repo
 
     return orgRepos
@@ -542,7 +541,6 @@ def getOrgs():
     ):
         orgPayloads = response.json()
         for org in orgPayloads:
-            logger.info("Got org from API call: %s", org['login'])
             orgs.append(org['login'])
 
     return orgs
