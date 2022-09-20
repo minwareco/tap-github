@@ -1,4 +1,4 @@
-# TODO: consolidate this with gitlab's copy:
+# TODO: consolidate this with other copies:
 # https://minware.atlassian.net/browse/MW-258
 
 import subprocess
@@ -109,9 +109,11 @@ def parseDiffLines(lines):
 
 
 class GitLocal:
-  def __init__(self, config):
+  def __init__(self, config, source):
     self.token = config['access_token']
     self.workingDir = config['workingDir']
+    self.pullDomain = config['pullDomain']
+    self.source = source
     self.LS_CACHE = {}
     self.INIT_REPO = {}
 
@@ -144,7 +146,16 @@ class GitLocal:
           .format(repo, completed.returncode, strippedOutput))
     else:
       logger.info('Running git clone for repo {}'.format(repo))
-      cloneUrl = "https://x-access-token:{}@github.com/{}.git".format(self.token, repo)
+      if self.source == 'github':
+        if not self.pullDomain:
+          self.pullDomain = 'github.com'
+        cloneUrl = "https://x-access-token:{}@{}/{}.git".format(self.token, self.pullDomain, repo)
+      elif self.source == 'gitlab':
+        if not self.pullDomain:
+          self.pullDomain = 'gitlab.com'
+        cloneUrl = "https://oauth2:{}@{}/{}.git".format(self.token, self.pullDomain, repo)
+      else:
+        raise Exception('Unrecognized source {}'.format(self.source))
       orgDir = self._getOrgWorkingDir(repo)
       completed = subprocess.run(['git', 'clone', '--mirror', cloneUrl], cwd=orgDir,
         capture_output=True)
@@ -162,10 +173,17 @@ class GitLocal:
 
     self.INIT_REPO[repo] = True
 
-  def hasLocalCommit(self, repo, sha):
+  def hasLocalCommit(self, repo, sha, noRetry=False):
     repoDir = self._getRepoWorkingDir(repo)
     completed = subprocess.run(['git', 'log', '-n1', sha], cwd=repoDir, capture_output=True)
     if completed.stderr.decode('utf-8', errors='replace').find('fatal: bad object') != -1:
+      if not noRetry:
+        completed = subprocess.run(['git', 'fetch', 'origin', sha], cwd=repoDir, capture_output=True)
+        if completed.stderr.decode('utf-8', errors='replace').find('fatal: ') != -1:
+          strippedOutput = completed.stderr.replace(self.token.encode('utf8'), b'<TOKEN>')
+          raise GitLocalException('Head fetch failed with code {} for repo {}, sha {}, message: {}'\
+            .format(completed.returncode, repo, sha, strippedOutput))
+        return self.hasLocalCommit(repo, sha, True)
       return False
     elif completed.returncode != 0:
       # Don't send the acces token through the error logging system
@@ -278,6 +296,7 @@ class GitLocal:
     completed = subprocess.run(['git', 'show-ref'], cwd=repoDir, capture_output=True)
     outstr = completed.stdout.decode('utf8', errors='replace')
 
+    # Special case -- first commit, diff instead with an empty tree
     if completed.returncode != 0:
       strippedOutput = '' if not completed.stderr else \
         completed.stderr.replace(self.token.encode('utf8'), b'<TOKEN>')

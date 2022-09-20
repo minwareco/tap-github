@@ -1962,7 +1962,7 @@ def do_sync(config, state, catalog):
         gitLocal = GitLocal({
             'access_token': access_token,
             'workingDir': '/tmp'
-        })
+        }, 'github')
 
         for stream in catalog['streams']:
             stream_id = stream['tap_stream_id']
