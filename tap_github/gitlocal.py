@@ -7,13 +7,48 @@ import os
 import re
 import json
 import singer
+import hashlib
 
 class GitLocalException(Exception):
   pass
 
 logger = singer.get_logger()
 
-def parseDiffLines(lines):
+# Average 2^(8 * 8 / 2) = 2^32 items required to experience random collision. Collisions don't
+# matter that much in this context, so this should be more than ample length. It is almost better to
+# not have too many bits in this scenario, because it makes it harder to reliably reverse the
+# actual original code due to there being a lot more possibilities
+saveHashLen = 8
+# Save on CPU time since we are processing a lot of lines, and the lower bit length described above
+# reduces the need for making the hmac difficult to reverse.
+hmacIterations = 1
+
+def computeHmac(str, hmacToken):
+  if len(str) == 0:
+    return str
+  else:
+    hashObject = hashlib.pbkdf2_hmac('sha256', str.encode('utf8'), hmacToken.encode('utf8'),
+      hmacIterations, saveHashLen)
+    return hashObject.hex()
+
+def hashPatchLine(patchLine, hmacToken = None):
+  if patchLine[0] == '@':
+    lineSplit = patchLine.split('@@')
+    header = '@@'.join(lineSplit[:2])
+    context = '@@'.join(lineSplit[2:])
+    if len(context) == 0:
+      return patchLine
+    else:
+      return '@@'.join([header, ' ' + computeHmac(context[1:], hmacToken)])
+  else:
+    prefix = ''
+    if patchLine[0] == '+' or patchLine[0] == '-':
+      prefix = patchLine[0]
+      patchLine = patchLine[1:]
+    return ''.join([prefix, computeHmac(patchLine, hmacToken)])
+
+
+def parseDiffLines(lines, shouldEncrypt=False, hmacToken=None):
   changes = []
   curChange = None
   state = 'start'
@@ -52,13 +87,13 @@ def parseDiffLines(lines):
       if line[0] == '@':
         # Note: this line may have context at the end, which is okay and part of the git difff
         # format.
-        curChange['patch'].append(line)
+        curChange['patch'].append(hashPatchLine(line, hmacToken) if shouldEncrypt else line)
       else:
         if line[0] == '-':
           curChange['deletions'] += 1
         elif line[0] == '+':
           curChange['additions'] += 1
-        curChange['patch'].append(line)
+        curChange['patch'].append(hashPatchLine(line, hmacToken) if shouldEncrypt else line)
     elif line[0] == 'i': # index
       # Ignore file mode changes for now
       pass
@@ -109,11 +144,15 @@ def parseDiffLines(lines):
 
 
 class GitLocal:
-  def __init__(self, config, source):
+  def __init__(self, config, sourceUrlPattern, hmacToken=None):
     self.token = config['access_token']
     self.workingDir = config['workingDir']
-    self.pullDomain = config['pullDomain']
-    self.source = source
+    self.sourceUrlPattern = sourceUrlPattern
+    self.hmacToken = hmacToken
+    if hmacToken:
+      self.shouldEncrypt = True
+    else:
+      self.shouldEncrypt = False
     self.LS_CACHE = {}
     self.INIT_REPO = {}
 
@@ -146,16 +185,7 @@ class GitLocal:
           .format(repo, completed.returncode, strippedOutput))
     else:
       logger.info('Running git clone for repo {}'.format(repo))
-      if self.source == 'github':
-        if not self.pullDomain:
-          self.pullDomain = 'github.com'
-        cloneUrl = "https://x-access-token:{}@{}/{}.git".format(self.token, self.pullDomain, repo)
-      elif self.source == 'gitlab':
-        if not self.pullDomain:
-          self.pullDomain = 'gitlab.com'
-        cloneUrl = "https://oauth2:{}@{}/{}.git".format(self.token, self.pullDomain, repo)
-      else:
-        raise Exception('Unrecognized source {}'.format(self.source))
+      cloneUrl = self.sourceUrlPattern.format(self.token, repo)
       orgDir = self._getOrgWorkingDir(repo)
       completed = subprocess.run(['git', 'clone', '--mirror', cloneUrl], cwd=orgDir,
         capture_output=True)
@@ -284,7 +314,7 @@ class GitLocal:
     outstr = completed.stdout.decode('utf8', errors='replace').replace('\u0000', '\uFFFD')
     lines = outstr.split('\n')
 
-    parsed = parseDiffLines(lines)
+    parsed = parseDiffLines(lines, self.shouldEncrypt, self.hmacToken)
     for diff in parsed:
       diff['commit_sha'] = sha
 
