@@ -1,4 +1,4 @@
-# TODO: consolidate this with gitlab's copy:
+# TODO: consolidate this with other copies:
 # https://minware.atlassian.net/browse/MW-258
 
 import subprocess
@@ -7,14 +7,48 @@ import os
 import re
 import json
 import singer
+import hashlib
 
 class GitLocalException(Exception):
   pass
 
 logger = singer.get_logger()
 
-def parseDiffLines(lines):
-  #ogger.info("parseDiffLines() called for %d lines", len(lines))
+# Average 2^(8 * 8 / 2) = 2^32 items required to experience random collision. Collisions don't
+# matter that much in this context, so this should be more than ample length. It is almost better to
+# not have too many bits in this scenario, because it makes it harder to reliably reverse the
+# actual original code due to there being a lot more possibilities
+saveHashLen = 8
+# Save on CPU time since we are processing a lot of lines, and the lower bit length described above
+# reduces the need for making the hmac difficult to reverse.
+hmacIterations = 1
+
+def computeHmac(str, hmacToken):
+  if len(str) == 0:
+    return str
+  else:
+    hashObject = hashlib.pbkdf2_hmac('sha256', str.encode('utf8'), hmacToken.encode('utf8'),
+      hmacIterations, saveHashLen)
+    return hashObject.hex()
+
+def hashPatchLine(patchLine, hmacToken = None):
+  if patchLine[0] == '@':
+    lineSplit = patchLine.split('@@')
+    header = '@@'.join(lineSplit[:2])
+    context = '@@'.join(lineSplit[2:])
+    if len(context) == 0:
+      return patchLine
+    else:
+      return '@@'.join([header, ' ' + computeHmac(context[1:], hmacToken)])
+  else:
+    prefix = ''
+    if patchLine[0] == '+' or patchLine[0] == '-':
+      prefix = patchLine[0]
+      patchLine = patchLine[1:]
+    return ''.join([prefix, computeHmac(patchLine, hmacToken)])
+
+
+def parseDiffLines(lines, shouldEncrypt=False, hmacToken=None):
   changes = []
   curChange = None
   state = 'start'
@@ -53,13 +87,13 @@ def parseDiffLines(lines):
       if line[0] == '@':
         # Note: this line may have context at the end, which is okay and part of the git difff
         # format.
-        curChange['patch'].append(line)
+        curChange['patch'].append(hashPatchLine(line, hmacToken) if shouldEncrypt else line)
       else:
         if line[0] == '-':
           curChange['deletions'] += 1
         elif line[0] == '+':
           curChange['additions'] += 1
-        curChange['patch'].append(line)
+        curChange['patch'].append(hashPatchLine(line, hmacToken) if shouldEncrypt else line)
     elif line[0] == 'i': # index
       # Ignore file mode changes for now
       pass
@@ -110,9 +144,15 @@ def parseDiffLines(lines):
 
 
 class GitLocal:
-  def __init__(self, config):
+  def __init__(self, config, sourceUrlPattern, hmacToken=None):
     self.token = config['access_token']
     self.workingDir = config['workingDir']
+    self.sourceUrlPattern = sourceUrlPattern
+    self.hmacToken = hmacToken
+    if hmacToken:
+      self.shouldEncrypt = True
+    else:
+      self.shouldEncrypt = False
     self.LS_CACHE = {}
     self.INIT_REPO = {}
 
@@ -145,7 +185,7 @@ class GitLocal:
           .format(repo, completed.returncode, strippedOutput))
     else:
       logger.info('Running git clone for repo {}'.format(repo))
-      cloneUrl = "https://x-access-token:{}@github.com/{}.git".format(self.token, repo)
+      cloneUrl = self.sourceUrlPattern.format(self.token, repo)
       orgDir = self._getOrgWorkingDir(repo)
       completed = subprocess.run(['git', 'clone', '--mirror', cloneUrl], cwd=orgDir,
         capture_output=True)
@@ -163,11 +203,17 @@ class GitLocal:
 
     self.INIT_REPO[repo] = True
 
-  def hasLocalCommit(self, repo, sha):
+  def hasLocalCommit(self, repo, sha, noRetry=False):
     repoDir = self._getRepoWorkingDir(repo)
-    #ogger.info("Running git log -n1 %s", sha)
     completed = subprocess.run(['git', 'log', '-n1', sha], cwd=repoDir, capture_output=True)
     if completed.stderr.decode('utf-8', errors='replace').find('fatal: bad object') != -1:
+      if not noRetry:
+        completed = subprocess.run(['git', 'fetch', 'origin', sha], cwd=repoDir, capture_output=True)
+        if completed.stderr.decode('utf-8', errors='replace').find('fatal: ') != -1:
+          strippedOutput = completed.stderr.replace(self.token.encode('utf8'), b'<TOKEN>')
+          raise GitLocalException('Head fetch failed with code {} for repo {}, sha {}, message: {}'\
+            .format(completed.returncode, repo, sha, strippedOutput))
+        return self.hasLocalCommit(repo, sha, True)
       return False
     elif completed.returncode != 0:
       # Don't send the acces token through the error logging system
@@ -196,7 +242,6 @@ class GitLocal:
     if offset:
       params.append('--skip={}'.format(int(offset)))
     params.append(headSha)
-    #ogger.info("Running %s", ' '.join(params))
     completed = subprocess.run(params, cwd=repoDir, capture_output=True)
     if completed.returncode != 0:
       # Don't send the acces token through the error logging system
@@ -249,7 +294,6 @@ class GitLocal:
     head has already been fetched and this commit is available.
     """
     repoDir = self._getRepoWorkingDir(repo)
-    #ogger.info("Running git diff for %s", sha)
     completed = subprocess.run(['git', 'diff', sha + '~1', sha], cwd=repoDir, capture_output=True)
     # Special case -- first commit, diff instead with an empty tree
     if completed.returncode != 0 and b"~1': unknown revision or path not in the working tree" \
@@ -270,7 +314,7 @@ class GitLocal:
     outstr = completed.stdout.decode('utf8', errors='replace').replace('\u0000', '\uFFFD')
     lines = outstr.split('\n')
 
-    parsed = parseDiffLines(lines)
+    parsed = parseDiffLines(lines, self.shouldEncrypt, self.hmacToken)
     for diff in parsed:
       diff['commit_sha'] = sha
 
@@ -282,6 +326,7 @@ class GitLocal:
     completed = subprocess.run(['git', 'show-ref'], cwd=repoDir, capture_output=True)
     outstr = completed.stdout.decode('utf8', errors='replace')
 
+    # Special case -- first commit, diff instead with an empty tree
     if completed.returncode != 0:
       strippedOutput = '' if not completed.stderr else \
         completed.stderr.replace(self.token.encode('utf8'), b'<TOKEN>')
