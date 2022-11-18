@@ -263,6 +263,7 @@ def rate_throttling(response):
 MAX_RETRY_TIME = 120
 RETRY_WAIT = 15  # Wait between requests when the server is struggling
 def authed_get(source, url, headers={}, overrideMethod='get'):
+    logger.info('Getting url for source {}: {}'.format(source, url))
     with metrics.http_request_timer(source) as timer:
         session.headers.update(headers)
         retry_time = 0
@@ -868,6 +869,21 @@ def get_all_commit_comments(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_projects(schemas, repo_path, state, mdata, start_date):
+    
+    repoSplit = repo_path.split('/')
+    org = repoSplit[0]
+
+    # So there are both repo projects and org projects (not tied to a repo). Every time this is
+    # called, also attempt to fetch org projects, but only do that once.
+    orgLevel = False
+    if len(repoSplit) == 1:
+        orgLevel = True
+        # Load global projects -- only fetch this once per org
+        if process_globals == False or has_org_cache(org, 'projects'):
+            return state
+    else:
+        state = get_all_projects(schemas, org, state, mdata, start_date)
+
     bookmark_value = get_bookmark(state, repo_path, "projects", "since", start_date)
     if bookmark_value:
         bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
@@ -877,9 +893,14 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter('projects') as counter:
         #pylint: disable=too-many-nested-blocks
         try:
+            if orgLevel:
+                projectUri = 'https://api.github.com/orgs/{}/projects?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+            else:
+                projectUri = 'https://api.github.com/repos/{}/projects?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+            
             for response in authed_get_all_pages(
                     'projects',
-                    'https://api.github.com/repos/{}/projects?per_page=100&sort=created_at&direction=desc'.format(repo_path),
+                    projectUri,
                     { 'Accept': 'application/vnd.github.inertia-preview+json' }
             ):
                 projects = response.json()
@@ -902,8 +923,6 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
                     counter.increment()
 
                     project_id = r.get('id')
-
-
 
                     # sync project_columns if that schema is present (only there if selected)
                     if schemas.get('project_columns'):
