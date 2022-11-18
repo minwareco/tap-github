@@ -104,6 +104,211 @@
         "boolean"
       ]
     },
+    "milestone": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "title": "Milestone",
+          "description": "A collection of related issues and pull requests.",
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uri",
+              "examples": [
+                "https://api.github.com/repos/octocat/Hello-World/milestones/1"
+              ]
+            },
+            "html_url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uri",
+              "examples": [
+                "https://github.com/octocat/Hello-World/milestones/v1.0"
+              ]
+            },
+            "labels_url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uri",
+              "examples": [
+                "https://api.github.com/repos/octocat/Hello-World/milestones/1/labels"
+              ]
+            },
+            "id": {
+              "type": "integer",
+              "examples": [
+                1002604
+              ]
+            },
+            "node_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "examples": [
+                "MDk6TWlsZXN0b25lMTAwMjYwNA=="
+              ]
+            },
+            "number": {
+              "description": "The number of the milestone.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "examples": [
+                42
+              ]
+            },
+            "state": {
+              "description": "The state of the milestone.",
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "open",
+                "closed"
+              ],
+              "default": "open",
+              "examples": [
+                "open"
+              ]
+            },
+            "title": {
+              "description": "The title of the milestone.",
+              "type": [
+                "string",
+                "null"
+              ],
+              "examples": [
+                "v1.0"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "examples": [
+                "Tracking milestone for version 1.0"
+              ]
+            },
+            "creator": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "title": "Simple User",
+                  "description": "A GitHub user.",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "email": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "login": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "examples": [
+                        "octocat"
+                      ]
+                    },
+                    "id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "examples": [
+                        1
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "open_issues": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "examples": [
+                4
+              ]
+            },
+            "closed_issues": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "examples": [
+                8
+              ]
+            },
+            "created_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "examples": [
+                "2011-04-10T20:09:31Z"
+              ]
+            },
+            "updated_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "examples": [
+                "2014-03-03T18:58:10Z"
+              ]
+            },
+            "closed_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "examples": [
+                "2013-02-12T13:22:01Z"
+              ]
+            },
+            "due_on": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "examples": [
+                "2012-10-09T23:39:01Z"
+              ]
+            }
+          }
+        }
+      ]
+    },
     "events_url": {
       "type": [
         "null",
