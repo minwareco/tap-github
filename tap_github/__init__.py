@@ -784,7 +784,7 @@ def get_all_issue_milestones(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter('issue_milestones') as counter:
         for response in authed_get_all_pages(
                 'milestones',
-                'https://api.github.com/repos/{}/milestones?per_page=100&direction=desc'.format(repo_path)
+                'https://api.github.com/repos/{}/milestones?state=all&per_page=100&direction=desc'.format(repo_path)
         ):
             milestones = response.json()
             extraction_time = singer.utils.now()
