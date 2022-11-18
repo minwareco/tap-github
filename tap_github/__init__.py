@@ -263,7 +263,6 @@ def rate_throttling(response):
 MAX_RETRY_TIME = 120
 RETRY_WAIT = 15  # Wait between requests when the server is struggling
 def authed_get(source, url, headers={}, overrideMethod='get'):
-    logger.info('Getting url for source {}: {}'.format(source, url))
     with metrics.http_request_timer(source) as timer:
         session.headers.update(headers)
         retry_time = 0
