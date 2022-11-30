@@ -1468,6 +1468,18 @@
           ]
         }
       }
+    },
+    "column_name": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "previous_column_name": {
+      "type": [
+        "null",
+        "string"
+      ]
     }
   }
 }
