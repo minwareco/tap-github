@@ -704,7 +704,8 @@ def get_all_issue_events(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter('issue_events') as counter:
         for response in authed_get_all_pages(
                 'issue_events',
-                'https://api.github.com/repos/{}/issues/events?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+                'https://api.github.com/repos/{}/issues/events?per_page=100&sort=created_at&direction=desc'.format(repo_path),
+                { 'Accept': 'application/vnd.github.starfox-preview+json' }
         ):
             events = response.json()
             extraction_time = singer.utils.now()
