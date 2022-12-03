@@ -1468,6 +1468,38 @@
           ]
         }
       }
+    },
+    "project_card": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "project_id": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "project_url": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "column_name": {
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "previous_column_name": {
+        "type": [
+          "null",
+          "string"
+        ]
+      }
     }
   }
 }

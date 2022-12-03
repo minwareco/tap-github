@@ -35,6 +35,12 @@
         "id": {
           "type": ["null", "integer"]
         },
+        "name": {
+          "type": ["null", "string"]
+        },
+        "email": {
+          "type": ["null", "string"]
+        },
         "node_id": {
           "type": ["null", "string"]
         },
