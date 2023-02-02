@@ -1197,8 +1197,6 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
         # for each project we cached during get_all_projects_v2, page through its
         # associated issues
         for project in projects_v2:
-            logger.info('PROCESSING PROJECT = {}'.format(project['number']))
-
             query_values = {
                 'org': org,
                 'project_number': project['number']
@@ -1219,8 +1217,6 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
                     # filter out field values which are empty. this will happen for v1 fields that we are
                     # not interested to absorb in this v2 stream
                     issue['fieldValues'] = list(filter(lambda value: len(value) > 0, issue['fieldValues']['nodes']))
-
-                    # logger.info('ISSUE PROJECT = {}'.format(json.dumps(issue)))
 
                     # transform and write record
                     with singer.Transformer(pre_hook=utf8_hook) as transformer:
