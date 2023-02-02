@@ -49,6 +49,8 @@ KEY_PROPERTIES = {
     'issue_milestones': ['id'],
     'commit_comments': ['id'],
     'projects': ['id'],
+    'projects_v2': ['id'],
+    'projects_v2_issues': ['id'],
     'project_columns': ['id'],
     'project_cards': ['id'],
     'refs': ['ref'],
@@ -262,7 +264,7 @@ def rate_throttling(response):
 # endpoints will return 500 when they really should return 404 and we need to skip them.
 MAX_RETRY_TIME = 120
 RETRY_WAIT = 15  # Wait between requests when the server is struggling
-def authed_get(source, url, headers={}, overrideMethod='get'):
+def authed_get(source, url, headers={}, overrideMethod='get', data=None):
     with metrics.http_request_timer(source) as timer:
         session.headers.update(headers)
         retry_time = 0
@@ -271,7 +273,7 @@ def authed_get(source, url, headers={}, overrideMethod='get'):
         network_max_retries = 5
         while True:
             try:
-                resp = session.request(method=overrideMethod, url=url)
+                resp = session.request(method=overrideMethod, url=url, data=data)
                 # If there is another 401 error right after refreshing, then don't try again. Otherwise,
                 # get a new installation token for the github app and try again in case there is a
                 # token expiration
@@ -869,7 +871,7 @@ def get_all_commit_comments(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_projects(schemas, repo_path, state, mdata, start_date):
-    
+
     repoSplit = repo_path.split('/')
     org = repoSplit[0]
 
@@ -897,7 +899,7 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
                 projectUri = 'https://api.github.com/orgs/{}/projects?per_page=100&sort=created_at&direction=desc'.format(repo_path)
             else:
                 projectUri = 'https://api.github.com/repos/{}/projects?per_page=100&sort=created_at&direction=desc'.format(repo_path)
-            
+
             for response in authed_get_all_pages(
                     'projects',
                     projectUri,
@@ -939,7 +941,6 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
         except GoneError:
             logger.info('Received 410 Gone when attempting to access projects (they may be disabled for this repo), skipping import')
     return state
-
 
 def get_all_project_cards(column_id, schemas, repo_path, state, mdata, start_date):
     bookmark_value = get_bookmark(state, repo_path, "project_cards", "since", start_date)
@@ -1000,6 +1001,229 @@ def get_all_project_columns(project_id, schemas, repo_path, state, mdata, start_
                     rec = transformer.transform(r, schemas, metadata=metadata.to_map(mdata))
                 counter.increment()
                 yield rec
+
+    return state
+
+# IMPORTANT: The `query_template` must contain two variables in it named
+# {page_size} and {cursor} that the function will replace with values as
+# it loops. It also must select the `totalCount` and `pageInfo { endCursor }`
+# properties within the object being paged.
+#
+# See `get_all_projects_v2` for example usage.
+def authed_graphql_all_pages(source, query_template, query_values, path, page_size = 100, max_pages = 500):
+    totalRetrievedCount = 0
+    query_values = {
+        **query_values,
+        'page_size': page_size,
+        'cursor': '',
+    }
+
+    for i in range(max_pages):
+        # generate the query by filling in the template using values from the caller that have
+        # been combined with our own paging values (page_size, cursor)
+        query = query_template.format(**query_values)
+
+        # make GraphQL query
+        post_body = json.dumps({ 'query': query })
+        data = authed_get(source, 'https://api.github.com/graphql', {}, 'post', post_body)
+        data = data.json()
+
+        # check for errors
+        if data.get('errors') is not None:
+            logger.error('Projects V2 GraphQL query failed on page {}: {}'.format(i + 1, data.get('errors')))
+            raise Exception('Projects V2 GraphQL query failed')
+
+        # extract the data by drilling down into the returned object based on
+        # the input path array (e.g. ['organization', 'projectsV2'])
+        data = data['data']
+        for name in path:
+            data = data[name]
+
+        yield data['nodes']
+
+        query_values['cursor'] = data['pageInfo']['endCursor']
+        totalRetrievedCount += len(data['nodes'])
+        totalAvailableCount = data['totalCount']
+
+        # if there is no cursor left to query against or we have retrieved all of
+        # the available objects based on count, then break the loop
+        if query_values['cursor'] is None or totalRetrievedCount >= totalAvailableCount:
+            break
+
+projects_v2 = []
+
+def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
+    stream_name = 'projects_v2'
+    org = repo_path.split('/')[0]
+
+    # Only fetch this once per org
+    if process_globals == False or has_org_cache(org, stream_name):
+        return state
+
+    set_has_org_cache(org, stream_name, True)
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        path = ['organization', 'projectsV2']
+        query_template = '''query {{
+            organization(login:"{org}") {{
+                projectsV2(first: {page_size}, after: "{cursor}") {{
+                    totalCount
+                    pageInfo {{
+                        endCursor
+                    }}
+                    nodes {{
+                        title
+                        closed
+                        closedAt
+                        createdAt
+                        creator {{
+                            avatarUrl
+                            login
+                            resourcePath
+                            url
+                        }}
+                        databaseId
+                        id
+                        number
+                        public
+                        resourcePath
+                        shortDescription
+                        title
+                        url
+                    }}
+                }}
+            }}
+        }}'''
+        query_values = {
+            'org': org,
+        }
+
+        for projects in authed_graphql_all_pages(stream_name, query_template, query_values, path):
+            # store in cache for later usage in child streams
+            projects_v2.extend(projects)
+
+            for project in projects:
+                project['_sdc_org'] = org
+                # transform and write record
+                with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                    rec = transformer.transform(project, schemas, metadata=metadata.to_map(mdata))
+                singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                counter.increment()
+
+    return state
+
+
+def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
+    stream_name = 'projects_v2_issues'
+    org = repo_path.split('/')[0]
+
+    # Only fetch this once per org
+    if process_globals == False or has_org_cache(org, stream_name):
+        return state
+
+    set_has_org_cache(org, stream_name, True)
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        path = ['organization', 'projectV2', 'items']
+        query_template = '''query {{
+            organization(login:"{org}") {{
+                projectV2(number: {project_number}) {{
+                    items(first: {page_size}, after: "{cursor}") {{
+                        totalCount
+                        pageInfo {{
+                            endCursor
+                        }}
+                        nodes {{
+                            type
+                            createdAt
+                            updatedAt
+                            content {{
+                                ... on Issue {{
+                                    id
+                                    databaseId
+                                    number
+                                }}
+                            }}
+                            fieldValues(first: 50) {{
+                                nodes {{
+                                    ... on ProjectV2ItemFieldValueCommon {{
+                                        id
+                                        databaseId
+                                        createdAt
+                                        updatedAt
+                                        field {{
+                                            ... on ProjectV2FieldCommon {{
+                                                id
+                                                databaseId
+                                                createdAt
+                                                updatedAt
+                                                dataType
+                                                name
+                                                typename: __typename
+                                            }}
+                                        }}
+                                    }}
+                                    ... on ProjectV2ItemFieldDateValue {{
+                                        date
+                                    }}
+                                    ... on ProjectV2ItemFieldIterationValue {{
+                                        duration
+                                        iterationId
+                                        startDate
+                                        title
+                                    }}
+                                    ... on ProjectV2ItemFieldNumberValue {{
+                                        number
+                                    }}
+                                    ... on ProjectV2ItemFieldSingleSelectValue {{
+                                        name
+                                        optionId
+                                    }}
+                                    ... on ProjectV2ItemFieldTextValue {{
+                                        text
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}'''
+
+        # for each project we cached during get_all_projects_v2, page through its
+        # associated issues
+        for project in projects_v2:
+            query_values = {
+                'org': org,
+                'project_number': project['number']
+            }
+
+            for issues in authed_graphql_all_pages(stream_name, query_template, query_values, path):
+                for issue in issues:
+                    # various kinds of "items" come back in the query, but we are only interested
+                    # to ingest issues for this stream
+                    if issue['type'] != 'ISSUE':
+                        continue
+
+                    issue['projectV2'] = project
+
+                    # squash the issue content object back into the root issue object
+                    issue.update(issue['content'])
+
+                    # filter out field values which are empty. this will happen for v1 fields that we are
+                    # not interested to absorb in this v2 stream
+                    issue['fieldValues'] = list(filter(lambda value: len(value) > 0, issue['fieldValues']['nodes']))
+
+                    # transform and write record
+                    with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                        rec = transformer.transform(issue, schemas, metadata=metadata.to_map(mdata))
+                    singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                    counter.increment()
+
 
     return state
 
@@ -1960,6 +2184,7 @@ def do_sync(config, state, catalog):
     state = translate_state(state, catalog, allRepos)
 
     # Put branches and then pull requests before commits, which have a data dependency on them.
+    # Put projects_v2 before projects_v2_issues since the latter is dependent on former.
     def schemaSortFunc(val):
         if val['tap_stream_id'] == 'branches':
             return 'a1'
@@ -1967,6 +2192,10 @@ def do_sync(config, state, catalog):
             return 'a2'
         elif val['tap_stream_id'] == 'commits':
             return 'a3'
+        elif val['tap_stream_id'] == 'projects_v2':
+            return 'a4'
+        elif val['tap_stream_id'] == 'projects_v2_issues':
+            return 'a5'
         else:
             return val['tap_stream_id']
     catalog['streams'].sort(key=schemaSortFunc)
