@@ -1,0 +1,109 @@
+{
+  "type": [
+    "null",
+    "object"
+  ],
+  "properties": {
+    "_sdc_org": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "closed": {
+      "type": [
+        "boolean"
+      ]
+    },
+    "closedAt": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "date-time"
+    },
+    "createdAt": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "date-time"
+    },
+    "creator": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "avatarUrl": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "login": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "resourcePath": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "url": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      }
+    },
+    "databaseId": {
+      "type": [
+        "number"
+      ]
+    },
+    "id": {
+      "type": [
+        "string"
+      ]
+    },
+    "number": {
+      "type": [
+        "number"
+      ]
+    },
+    "public": {
+      "type": [
+        "boolean"
+      ]
+    },
+    "resourcePath": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "shortDescription": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "title": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "url": {
+      "type": [
+        "null",
+        "string"
+      ]
+    }
+  }
+}

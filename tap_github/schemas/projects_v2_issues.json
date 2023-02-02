@@ -1,0 +1,201 @@
+{
+  "type": [
+    "null",
+    "object"
+  ],
+  "properties": {
+    "projectV2": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string"
+          ]
+        },
+        "databaseId": {
+          "type": [
+            "integer"
+          ]
+        },
+        "number": {
+          "type": [
+            "integer"
+          ]
+        }
+      }
+    },
+    "id": {
+      "type": [
+        "string"
+      ]
+    },
+    "databaseId": {
+      "type": [
+        "integer"
+      ]
+    },
+    "number": {
+      "type": [
+        "integer"
+      ]
+    },
+    "createdAt": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "date-time"
+    },
+    "fieldValues": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": [
+              "string"
+            ]
+          },
+          "databaseId": {
+            "type": [
+              "integer"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "date": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "duration": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "iterationId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "startDate": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "number": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "optionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "field": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "id": {
+                "type": [
+                  "string"
+                ]
+              },
+              "databaseId": {
+                "type": [
+                  "integer"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date-time"
+              },
+              "name": {
+                "type": [
+                  "string"
+                ]
+              },
+              "dataType": {
+                "type": [
+                  "string"
+                ]
+              },
+              "typename": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
