@@ -2135,7 +2135,10 @@ SYNC_FUNCTIONS = {
     'projects': get_all_projects,
     'commit_comments': get_all_commit_comments,
     'repositories': get_repository_data,
-    'teams': get_all_teams
+    'teams': get_all_teams,
+    'projects_v2': get_all_projects_v2,
+    'projects_v2_issues': get_all_projects_v2_issues
+
 }
 
 SUB_STREAMS = {
