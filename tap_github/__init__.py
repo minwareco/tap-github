@@ -2006,6 +2006,9 @@ def get_all_issues(schema, repo_path,  state, mdata, start_date):
             extraction_time = singer.utils.now()
             for issue in issues:
                 issue['_sdc_repository'] = repo_path
+                if issue.get('assignee') is None and issue.get('assignees') is not None and len(issue.get('assignees')) > 0:
+                    issue['assignee'] = issue.get('assignees')[0]
+
                 with singer.Transformer(pre_hook=utf8_hook) as transformer:
                     rec = transformer.transform(issue, schema, metadata=metadata.to_map(mdata))
                 singer.write_record('issues', rec, time_extracted=extraction_time)
