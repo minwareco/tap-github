@@ -525,11 +525,21 @@ def refresh_app_token(pem=None, appid=None, org=None):
 
     return installation_token
 
+accountTypeCache = {}
+def getAccountType(org):
+    if not org in accountTypeCache:
+        response = authed_get('account', f'https://api.github.com/users/{org}')
+        account = response.json()
+        accountTypeCache[org] = account['type'].upper()
+
+    return accountTypeCache[org]
+
 def getReposForOrg(org):
+    acctPathComponent = 'users' if getAccountType(org) == 'USER' else 'orgs'
     orgRepos = []
     for response in authed_get_all_pages(
         'repositories',
-        f'https://api.github.com/orgs/{org}/repos?per_page=100'
+        f'https://api.github.com/{acctPathComponent}/{org}/repos?per_page=100'
     ):
         repos = response.json()
         for repo in repos:
@@ -603,6 +613,10 @@ def get_all_teams(schemas, repo_path, state, mdata, _start_date):
 
     # Only fetch this once per org
     if process_globals == False or has_org_cache(org, 'teams'):
+        return state
+
+    # for user accounts, a GitHub app cannot access teams so we just skip the import
+    if getAccountType(org) == 'USER':
         return state
 
     set_has_org_cache(org, 'teams')
@@ -871,9 +885,12 @@ def get_all_commit_comments(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_projects(schemas, repo_path, state, mdata, start_date):
-
     repoSplit = repo_path.split('/')
     org = repoSplit[0]
+
+    # for user accounts, a GitHub app cannot access projects so we just skip the import
+    if getAccountType(org) == 'USER':
+        return state
 
     # So there are both repo projects and org projects (not tied to a repo). Every time this is
     # called, also attempt to fetch org projects, but only do that once.
@@ -1055,6 +1072,7 @@ projects_v2 = []
 def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
     stream_name = 'projects_v2'
     org = repo_path.split('/')[0]
+    acctObjectName = 'user' if getAccountType(org) == 'USER' else 'organization'
 
     # Only fetch this once per org
     if process_globals == False or has_org_cache(org, stream_name):
@@ -1065,9 +1083,9 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
     extraction_time = singer.utils.now()
 
     with metrics.record_counter(stream_name) as counter:
-        path = ['organization', 'projectsV2']
+        path = [acctObjectName, 'projectsV2']
         query_template = '''query {{
-            organization(login:"{org}") {{
+            {acctObjectName}(login:"{org}") {{
                 projectsV2(first: {page_size}, after: "{cursor}") {{
                     totalCount
                     pageInfo {{
@@ -1098,6 +1116,7 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
         }}'''
         query_values = {
             'org': org,
+            'acctObjectName': acctObjectName,
         }
 
         for projects in authed_graphql_all_pages(stream_name, query_template, query_values, path):
@@ -1118,6 +1137,7 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
 def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
     stream_name = 'projects_v2_issues'
     org = repo_path.split('/')[0]
+    acctObjectName = 'user' if getAccountType(org) == 'USER' else 'organization'
 
     # Only fetch this once per org
     if process_globals == False or has_org_cache(org, stream_name):
@@ -1128,9 +1148,9 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
     extraction_time = singer.utils.now()
 
     with metrics.record_counter(stream_name) as counter:
-        path = ['organization', 'projectV2', 'items']
+        path = [acctObjectName, 'projectV2', 'items']
         query_template = '''query {{
-            organization(login:"{org}") {{
+            {acctObjectName}(login:"{org}") {{
                 projectV2(number: {project_number}) {{
                     items(first: {page_size}, after: "{cursor}") {{
                         totalCount
@@ -1199,7 +1219,8 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
         for project in projects_v2:
             query_values = {
                 'org': org,
-                'project_number': project['number']
+                'project_number': project['number'],
+                'acctObjectName': acctObjectName,
             }
 
             for issues in authed_graphql_all_pages(stream_name, query_template, query_values, path):
