@@ -1,0 +1,74 @@
+{
+  "type": [
+    "null",
+    "object"
+  ],
+  "properties": {
+    "_sdc_repository": {
+      "type": [
+        "string"
+      ]
+    },
+    "id": {
+      "type": [
+        "string"
+      ]
+    },
+    "branch_name": {
+      "type": [
+        "string"
+      ]
+    },
+    "commit_sha": {
+      "type": [
+        "string"
+      ]
+    },
+    "file_path": {
+      "type": [
+        "string"
+      ]
+    },
+    "file_name": {
+      "type": [
+        "string"
+      ]
+    },
+    "statements": {
+      "type": [
+        "null",
+        "number"
+      ]
+    },
+    "covered_statements": {
+      "type": [
+        "null",
+        "number"
+      ]
+    },
+    "functions": {
+      "type": [
+        "null",
+        "number"
+      ]
+    },
+    "covered_functions": {
+      "type": [
+        "null",
+        "number"
+      ]
+    },
+    "branches": {
+      "type": [
+        "null",
+        "number"
+      ]
+    },
+    "covered_branches": {
+      "type": [
+        "null",
+        "number"
+      ]
+    }
+  }
+}
