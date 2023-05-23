@@ -1334,7 +1334,7 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
                         singer.write_record(stream_name, rec, time_extracted=extraction_time)
                         counter.increment()
 
-    singer.write_bookmark(state, repo_path, stream_name, {'since': singer.utils.strftime(extraction_time)})
+                    singer.write_bookmark(state, repo_path, stream_name, {'since': singer.utils.strftime(artifact['updated_at'])})
 
     return state
 
