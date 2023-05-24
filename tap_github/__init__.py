@@ -14,6 +14,10 @@ import psutil
 import gc
 import debugpy
 import jwt
+import io
+import zipfile
+import xml.etree.ElementTree as ET
+import urllib.parse
 
 DEBUG = False
 if DEBUG:
@@ -32,6 +36,7 @@ REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 
 KEY_PROPERTIES = {
     'branches': ['repo_name'],
+    'code_coverage': ['id'],
     'commits': ['id'],
     'commit_files': ['id'],
     'comments': ['id'],
@@ -141,6 +146,7 @@ ERROR_CODE_EXCEPTION_MAPPING = {
 
 org_cache_flags = {}
 process_globals = True
+code_coverage_artifact_name = 'test-coverage'
 
 def has_org_cache(org, stream_name):
     global org_cache_flags
@@ -1245,6 +1251,88 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
                     singer.write_record(stream_name, rec, time_extracted=extraction_time)
                     counter.increment()
 
+    return state
+
+def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
+    stream_name = 'code_coverage'
+    repo_name = repo_path.split('/')[1]
+
+    bookmark_value = get_bookmark(state, repo_path, stream_name, "since", start_date)
+    if bookmark_value:
+        bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
+    else:
+        bookmark_time = 0
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        artifact_name_encoded = urllib.parse.quote(code_coverage_artifact_name)
+
+        for response in authed_get_all_pages(
+                stream_name,
+                'https://api.github.com/repos/{}/actions/artifacts?name={}'.format(repo_path, artifact_name_encoded)
+        ):
+            artifacts = response.json()['artifacts']
+            for artifact in artifacts:
+                # skip records that haven't been updated since the last run.
+                # the GitHub API doesn't currently allow a `?since` param for artifacts, so we have
+                # to iterate them all, but we only need to process the ones that are new since our
+                # last bookmark.
+                if bookmark_time and singer.utils.strptime_to_utc(artifact.get('updated_at')) < bookmark_time:
+                    continue
+
+                # the endpoint actually returns a 302 redirect, but authed_get is coded in such a way that
+                # the redirect is followed automatically, thus we get the actual artifact binary data response
+                # here. also, take note that it is always a zip file, even if the original artifact was
+                # a single file.
+                # ref: https://docs.github.com/en/rest/actions/artifacts?apiVersion=2022-11-28
+                data = authed_get(stream_name, artifact['archive_download_url'])
+
+                # load zip file into memory
+                zip = zipfile.ZipFile(io.BytesIO(data.content))
+
+                # if the expected clover.xml file is not in the zip file, skip it
+                if 'clover.xml' not in zip.namelist():
+                    continue
+
+                # load clover.xml file into memory
+                file = zip.open('clover.xml')
+                xml = file.read()
+
+                # parse the clover.xml data into a tree
+                root = ET.fromstring(xml)
+
+                # collect all package stats and emit each record
+                for package in root.iter('package'):
+                    for package_file in package.iter('file'):
+                        file_metrics = next(package_file.iterfind('metrics'))
+
+                        # the file path is absolute and thus includes the Github worker root folder
+                        # (e.g. /home/runner/...). splitting on the repo name with maximum splits = 1
+                        # allows us to get the file path relative to the repo root.
+                        relative_path = package_file.get('path').split(repo_name, 1)[1][len(repo_name) + 2:]
+                        coverage = {
+                            '_sdc_repository': repo_path,
+                            'id': '{}/{}'.format(repo_path, relative_path),
+                            'branch_name': artifact['workflow_run']['head_branch'],
+                            'commit_sha': artifact['workflow_run']['head_sha'],
+                            'file_path': relative_path,
+                            'file_name': package_file.get('name'),
+                            'statements': int(file_metrics.get('statements')),
+                            'covered_statements': int(file_metrics.get('coveredstatements')),
+                            'functions': int(file_metrics.get('methods')),
+                            'covered_functions': int(file_metrics.get('coveredmethods')),
+                            'branches': int(file_metrics.get('conditionals')),
+                            'covered_branches': int(file_metrics.get('coveredconditionals')),
+                        }
+
+                        # transform and write the record
+                        with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                            rec = transformer.transform(coverage, schemas, metadata=metadata.to_map(mdata))
+                        singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                        counter.increment()
+
+                    singer.write_bookmark(state, repo_path, stream_name, {'since': singer.utils.strftime(artifact['updated_at'])})
 
     return state
 
@@ -2161,8 +2249,8 @@ SYNC_FUNCTIONS = {
     'repositories': get_repository_data,
     'teams': get_all_teams,
     'projects_v2': get_all_projects_v2,
-    'projects_v2_issues': get_all_projects_v2_issues
-
+    'projects_v2_issues': get_all_projects_v2_issues,
+    'code_coverage': get_all_code_coverage
 }
 
 SUB_STREAMS = {
@@ -2174,11 +2262,20 @@ SUB_STREAMS = {
 
 def do_sync(config, state, catalog):
     global process_globals
+    global code_coverage_artifact_name
 
     start_date = config['start_date'] if 'start_date' in config else None
-    process_globals = config['process_globals'] if 'process_globals' in config else True
+
+    # optionally override the default for processing global stream data (e.g. teams)
+    if 'process_globals' in config:
+        process_globals = config['process_globals']
+
+    # optionally override the default code coverage artifact name
+    if 'code_coverage_artifact_name' in config:
+        code_coverage_artifact_name = config['code_coverage_artifact_name']
 
     logger.info('Process globals = {}'.format(str(process_globals)))
+    logger.info('Code coverage artifact name = {}'.format(code_coverage_artifact_name))
 
     # get selected streams, make sure stream dependencies are met
     selected_stream_ids = get_selected_streams(catalog)
