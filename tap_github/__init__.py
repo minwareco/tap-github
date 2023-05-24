@@ -1274,8 +1274,6 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
         ):
             artifacts = response.json()['artifacts']
             for artifact in artifacts:
-                artifact['_sdc_repository'] = repo_path
-
                 # skip records that haven't been updated since the last run.
                 # the GitHub API doesn't currently allow a `?since` param for artifacts, so we have
                 # to iterate them all, but we only need to process the ones that are new since our
