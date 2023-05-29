@@ -1324,6 +1324,8 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
                             'covered_functions': int(file_metrics.get('coveredmethods')),
                             'branches': int(file_metrics.get('conditionals')),
                             'covered_branches': int(file_metrics.get('coveredconditionals')),
+                            'created_at': artifact['created_at'],
+                            'updated_at': artifact['updated_at'],
                         }
 
                         # transform and write the record
@@ -1332,7 +1334,7 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
                         singer.write_record(stream_name, rec, time_extracted=extraction_time)
                         counter.increment()
 
-                    singer.write_bookmark(state, repo_path, stream_name, {'since': singer.utils.strftime(artifact['updated_at'])})
+                    singer.write_bookmark(state, repo_path, stream_name, {'since': artifact['updated_at']})
 
     return state
 
