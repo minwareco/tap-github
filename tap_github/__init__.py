@@ -1268,73 +1268,78 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter(stream_name) as counter:
         artifact_name_encoded = urllib.parse.quote(code_coverage_artifact_name)
 
-        for response in authed_get_all_pages(
-                stream_name,
-                'https://api.github.com/repos/{}/actions/artifacts?name={}'.format(repo_path, artifact_name_encoded)
-        ):
-            artifacts = response.json()['artifacts']
-            for artifact in artifacts:
-                # skip records that haven't been updated since the last run.
-                # the GitHub API doesn't currently allow a `?since` param for artifacts, so we have
-                # to iterate them all, but we only need to process the ones that are new since our
-                # last bookmark.
-                if bookmark_time and singer.utils.strptime_to_utc(artifact.get('updated_at')) < bookmark_time:
-                    continue
+        try
+            for response in authed_get_all_pages(
+                    stream_name,
+                    'https://api.github.com/repos/{}/actions/artifacts?name={}'.format(repo_path, artifact_name_encoded)
+            ):
+                artifacts = response.json()['artifacts']
+                for artifact in artifacts:
+                    # skip records that haven't been updated since the last run.
+                    # the GitHub API doesn't currently allow a `?since` param for artifacts, so we have
+                    # to iterate them all, but we only need to process the ones that are new since our
+                    # last bookmark.
+                    if bookmark_time and singer.utils.strptime_to_utc(artifact.get('updated_at')) < bookmark_time:
+                        continue
 
-                # the endpoint actually returns a 302 redirect, but authed_get is coded in such a way that
-                # the redirect is followed automatically, thus we get the actual artifact binary data response
-                # here. also, take note that it is always a zip file, even if the original artifact was
-                # a single file.
-                # ref: https://docs.github.com/en/rest/actions/artifacts?apiVersion=2022-11-28
-                data = authed_get(stream_name, artifact['archive_download_url'])
+                    # the endpoint actually returns a 302 redirect, but authed_get is coded in such a way that
+                    # the redirect is followed automatically, thus we get the actual artifact binary data response
+                    # here. also, take note that it is always a zip file, even if the original artifact was
+                    # a single file.
+                    # ref: https://docs.github.com/en/rest/actions/artifacts?apiVersion=2022-11-28
+                    data = authed_get(stream_name, artifact['archive_download_url'])
 
-                # load zip file into memory
-                zip = zipfile.ZipFile(io.BytesIO(data.content))
+                    # load zip file into memory
+                    zip = zipfile.ZipFile(io.BytesIO(data.content))
 
-                # if the expected clover.xml file is not in the zip file, skip it
-                if 'clover.xml' not in zip.namelist():
-                    continue
+                    # if the expected clover.xml file is not in the zip file, skip it
+                    if 'clover.xml' not in zip.namelist():
+                        continue
 
-                # load clover.xml file into memory
-                file = zip.open('clover.xml')
-                xml = file.read()
+                    # load clover.xml file into memory
+                    file = zip.open('clover.xml')
+                    xml = file.read()
 
-                # parse the clover.xml data into a tree
-                root = ET.fromstring(xml)
+                    # parse the clover.xml data into a tree
+                    root = ET.fromstring(xml)
 
-                # collect all package stats and emit each record
-                for package in root.iter('package'):
-                    for package_file in package.iter('file'):
-                        file_metrics = next(package_file.iterfind('metrics'))
+                    # collect all package stats and emit each record
+                    for package in root.iter('package'):
+                        for package_file in package.iter('file'):
+                            file_metrics = next(package_file.iterfind('metrics'))
 
-                        # the file path is absolute and thus includes the Github worker root folder
-                        # (e.g. /home/runner/...). splitting on the repo name with maximum splits = 1
-                        # allows us to get the file path relative to the repo root.
-                        relative_path = package_file.get('path').split(repo_name, 1)[1][len(repo_name) + 2:]
-                        coverage = {
-                            '_sdc_repository': repo_path,
-                            'id': '{}/{}'.format(repo_path, relative_path),
-                            'branch_name': artifact['workflow_run']['head_branch'],
-                            'commit_sha': artifact['workflow_run']['head_sha'],
-                            'file_path': relative_path,
-                            'file_name': package_file.get('name'),
-                            'statements': int(file_metrics.get('statements')),
-                            'covered_statements': int(file_metrics.get('coveredstatements')),
-                            'functions': int(file_metrics.get('methods')),
-                            'covered_functions': int(file_metrics.get('coveredmethods')),
-                            'branches': int(file_metrics.get('conditionals')),
-                            'covered_branches': int(file_metrics.get('coveredconditionals')),
-                            'created_at': artifact['created_at'],
-                            'updated_at': artifact['updated_at'],
-                        }
+                            # the file path is absolute and thus includes the Github worker root folder
+                            # (e.g. /home/runner/...). splitting on the repo name with maximum splits = 1
+                            # allows us to get the file path relative to the repo root.
+                            relative_path = package_file.get('path').split(repo_name, 1)[1][len(repo_name) + 2:]
+                            coverage = {
+                                '_sdc_repository': repo_path,
+                                'id': '{}/{}'.format(repo_path, relative_path),
+                                'branch_name': artifact['workflow_run']['head_branch'],
+                                'commit_sha': artifact['workflow_run']['head_sha'],
+                                'file_path': relative_path,
+                                'file_name': package_file.get('name'),
+                                'statements': int(file_metrics.get('statements')),
+                                'covered_statements': int(file_metrics.get('coveredstatements')),
+                                'functions': int(file_metrics.get('methods')),
+                                'covered_functions': int(file_metrics.get('coveredmethods')),
+                                'branches': int(file_metrics.get('conditionals')),
+                                'covered_branches': int(file_metrics.get('coveredconditionals')),
+                                'created_at': artifact['created_at'],
+                                'updated_at': artifact['updated_at'],
+                            }
 
-                        # transform and write the record
-                        with singer.Transformer(pre_hook=utf8_hook) as transformer:
-                            rec = transformer.transform(coverage, schemas, metadata=metadata.to_map(mdata))
-                        singer.write_record(stream_name, rec, time_extracted=extraction_time)
-                        counter.increment()
+                            # transform and write the record
+                            with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                                rec = transformer.transform(coverage, schemas, metadata=metadata.to_map(mdata))
+                            singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                            counter.increment()
 
-                    singer.write_bookmark(state, repo_path, stream_name, {'since': artifact['updated_at']})
+                        singer.write_bookmark(state, repo_path, stream_name, {'since': artifact['updated_at']})
+        except AuthException as err:
+            logger.warn('Code coverage data could not be ingested because authorization failed on the GitHub Actions artifacts endpoint')
+            # do not throw for this yet because most orgs do not have this permission yet
+
 
     return state
 
