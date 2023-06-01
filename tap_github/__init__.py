@@ -1268,7 +1268,7 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter(stream_name) as counter:
         artifact_name_encoded = urllib.parse.quote(code_coverage_artifact_name)
 
-        try
+        try:
             for response in authed_get_all_pages(
                     stream_name,
                     'https://api.github.com/repos/{}/actions/artifacts?name={}'.format(repo_path, artifact_name_encoded)
