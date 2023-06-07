@@ -1308,10 +1308,19 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
                         for package_file in package.iter('file'):
                             file_metrics = next(package_file.iterfind('metrics'))
 
-                            # the file path is absolute and thus includes the Github worker root folder
-                            # (e.g. /home/runner/...). splitting on the repo name with maximum splits = 1
-                            # allows us to get the file path relative to the repo root.
-                            relative_path = package_file.get('path').split(repo_name, 1)[1][len(repo_name) + 2:]
+                            full_path = package_file.get('path')
+                            if full_path.startswith('/home/runner'):
+                                # when executed from within GitHub Actions the file path is absolute and
+                                # thus includes the Github worker root folder (e.g. /home/runner/...). splitting
+                                # on the repo name with maximum splits = 1 allows us to get the file path relative
+                                # to the repo root.
+                                relative_path = full_path.split(repo_name, 1)[1][len(repo_name) + 2:]
+                            elif full_path.startswith('/app'):
+                                relative_path = full_path[5:]
+                            else:
+                                # fall back to full path
+                                relative_path = full_path
+                            
                             coverage = {
                                 '_sdc_repository': repo_path,
                                 'id': '{}/{}'.format(repo_path, relative_path),
