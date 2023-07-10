@@ -58,7 +58,7 @@ KEY_PROPERTIES = {
     'projects_v2_issues': ['id'],
     'project_columns': ['id'],
     'project_cards': ['id'],
-    'refs': ['ref'],
+    'refs': ['id'],
     'repos': ['id'],
     'teams': ['id'],
     'team_members': ['id'],
@@ -2002,6 +2002,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
 
             # Emit the ref record as well
             refRecord = {
+                'id': '{}/{}'.format(repo_path, headRef),
                 '_sdc_repository': repo_path,
                 'ref': headRef,
                 'sha': headSha
