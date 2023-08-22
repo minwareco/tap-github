@@ -1273,7 +1273,7 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
                     stream_name,
                     'https://api.github.com/repos/{}/actions/artifacts?name={}'.format(repo_path, artifact_name_encoded)
             ):
-                artifacts = response.json()['artifacts']
+                artifacts = filter(lambda a: a['expired'] != True, response.json()['artifacts'])
                 for artifact in artifacts:
                     # skip records that haven't been updated since the last run.
                     # the GitHub API doesn't currently allow a `?since` param for artifacts, so we have
