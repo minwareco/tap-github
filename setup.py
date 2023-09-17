@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import os 
 
 from setuptools import setup, find_packages
 
@@ -15,7 +16,8 @@ setup(name='tap-github',
           'psutil==5.8.0',
           'debugpy==1.5.1',
           'PyJWT==2.3.0',
-          'cryptography==36.0.2'
+          'cryptography==36.0.2',
+          'gitlocal@git+https://{}@github.com/minwareco/gitlocal.git'.format(os.environ.get("GITHUB_TOKEN", ""))
       ],
       extras_require={
           'dev': [
