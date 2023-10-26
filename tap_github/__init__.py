@@ -2202,7 +2202,17 @@ def get_all_stargazers(schema, repo_path, state, mdata, _start_date):
     return state
 
 def get_repository_data(schema, repo_path, state, mdata, _start_date):
-    repo_metadata = get_repo_metadata(repo_path)
+    repo_metadata = authed_get(
+        'repositories',
+        'https://api.github.com/repos/{}'.format(repo_path)
+    ).json()
+
+    fork_org_name = None
+    fork_repo_name = None
+    if repo_metadata['fork']:
+        fork_split = repo_metadata['parent']['full_name'].split('/')
+        fork_org_name = fork_split[0]
+        fork_repo_name = fork_split[1]
 
     with metrics.record_counter('repositories') as counter:
         extraction_time = singer.utils.now()
@@ -2212,8 +2222,8 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
         repo['org_name'] = repo_path.split('/')[0]
         repo['repo_name'] = repo_path.split('/')[1]
         repo['is_source_public'] = repo_metadata['visibility'] == 'public'
-        repo['fork_org_name'] = None # TODO: make `forks` API call to get this
-        repo['fork_repo_name'] = None # TODO: make `forks` API call to get this
+        repo['fork_org_name'] = fork_org_name
+        repo['fork_repo_name'] = fork_repo_name
         repo['description'] = repo_metadata['description']
         with singer.Transformer() as transformer:
             rec = transformer.transform(repo, schema, metadata=metadata.to_map(mdata))
