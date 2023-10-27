@@ -17,7 +17,7 @@ setup(name='tap-github',
           'debugpy==1.5.1',
           'PyJWT==2.3.0',
           'cryptography==36.0.2',
-          'gitlocal@git+https://{}@github.com/minwareco/gitlocal.git@cffdf75345db9024b1026cb2b2ea31e35d135ce0'.format(os.environ.get("GITHUB_TOKEN", ""))
+          'gitlocal@git+https://{}@github.com/minwareco/gitlocal.git'.format(os.environ.get("GITHUB_TOKEN", ""))
       ],
       extras_require={
           'dev': [
