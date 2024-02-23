@@ -1836,19 +1836,15 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     https://developer.github.com/v3/repos/commits/#list-commits-on-a-repository
     '''
 
-    bookmark = get_bookmark(state, repo_path, "commits", "since", start_date)
-    if not bookmark:
-        bookmark = '1970-01-01'
-
     # Get the set of all commits we have fetched previously
     fetchedCommits = get_bookmark(state, repo_path, "commits", "fetchedCommits")
     if not fetchedCommits:
         fetchedCommits = {}
-    else:
-        # We have run previously, so we don't want to use the time-based bookmark becuase it could
-        # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
-        # to the beginning of time and rely solely on the fetchedCommits bookmark.
-        bookmark = '1970-01-01'
+
+    # We have run previously, so we don't want to use the time-based bookmark becuase it could
+    # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
+    # to the beginning of time and rely solely on the fetchedCommits bookmark.
+    bookmark = '1970-01-01'
 
     # We don't want newly fetched commits to update the state if we fail partway through, because
     # this could lead to commits getting marked as fetched when their parents are never fetched. So,
@@ -1938,7 +1934,6 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     # Don't write until the end so that we don't record fetchedCommits if we fail and never get
     # their parents.
     singer.write_bookmark(state, repo_path, 'commits', {
-        'since': singer.utils.strftime(extraction_time),
         'fetchedCommits': fetchedCommits
     })
 
@@ -1953,19 +1948,15 @@ async def getChangedfilesForCommits(commits, repo_path, hasLocal, gitLocal):
     return results
 
 def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal):
-    bookmark = get_bookmark(state, repo_path, "commit_files", "since", start_date)
-    if not bookmark:
-        bookmark = '1970-01-01'
-
     # Get the set of all commits we have fetched previously
     fetchedCommits = get_bookmark(state, repo_path, "commit_files", "fetchedCommits")
     if not fetchedCommits:
         fetchedCommits = {}
-    else:
-        # We have run previously, so we don't want to use the time-based bookmark becuase it could
-        # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
-        # to the beginning of time and rely solely on the fetchedCommits bookmark.
-        bookmark = '1970-01-01'
+
+    # We have run previously, so we don't want to use the time-based bookmark becuase it could
+    # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
+    # to the beginning of time and rely solely on the fetchedCommits bookmark.
+    bookmark = '1970-01-01'
 
     logger.info('Found {} fetched commits in state.'.format(len(fetchedCommits)))
 
@@ -2106,7 +2097,6 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
     # Don't write until the end so that we don't record fetchedCommits if we fail and never get
     # their parents.
     singer.write_bookmark(state, repo_path, 'commit_files', {
-        'since': singer.utils.strftime(extraction_time),
         'fetchedCommits': fetchedCommits
     })
 
