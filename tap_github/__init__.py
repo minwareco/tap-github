@@ -1841,9 +1841,9 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     if not fetchedCommits:
         fetchedCommits = {}
 
-    # We have run previously, so we don't want to use the time-based bookmark becuase it could
-    # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
-    # to the beginning of time and rely solely on the fetchedCommits bookmark.
+    # We don't want to use a time-based bookmark becuase it could skip commits
+    # that are pushed after they are committed. So, set the bookmark to the beginning
+    # of time until we have everything, using only the fetchedCommits bookmark.
     bookmark = '1970-01-01'
 
     # We don't want newly fetched commits to update the state if we fail partway through, because
@@ -1953,9 +1953,9 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
     if not fetchedCommits:
         fetchedCommits = {}
 
-    # We have run previously, so we don't want to use the time-based bookmark becuase it could
-    # skip commits that are pushed after they are committed. So, reset the 'since' bookmark back
-    # to the beginning of time and rely solely on the fetchedCommits bookmark.
+    # We don't want to use a time-based bookmark becuase it could skip commits
+    # that are pushed after they are committed. So, set the bookmark to the beginning
+    # of time until we have everything, using only the fetchedCommits bookmark.
     bookmark = '1970-01-01'
 
     logger.info('Found {} fetched commits in state.'.format(len(fetchedCommits)))
