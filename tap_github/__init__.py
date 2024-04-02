@@ -1841,11 +1841,6 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
     if not fetchedCommits:
         fetchedCommits = {}
 
-    # We don't want to use a time-based bookmark becuase it could skip commits
-    # that are pushed after they are committed. So, set the bookmark to the beginning
-    # of time until we have everything, using only the fetchedCommits bookmark.
-    bookmark = '1970-01-01'
-
     # We don't want newly fetched commits to update the state if we fail partway through, because
     # this could lead to commits getting marked as fetched when their parents are never fetched. So,
     # copy the dict.
@@ -1866,8 +1861,11 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
             # Maintain a list of parents we are waiting to see
             missingParents = {}
 
-            cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
-                .format(repo_path, head, bookmark)
+            # We don't want to use a time-based bookmark becuase it could skip commits
+            # that are pushed after they are committed. Using only the fetchedCommits as 
+            # our bookmark.
+            cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}' \
+                .format(repo_path, head)
             pagenum = 0
             while True:
                 # Get commits one page at a time
@@ -1882,7 +1880,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                     cururl = 'https://api.github.com/repos/{}/commits?sha={}' \
                         .format(repo_path, head)
                     logger.warning('Received internal server error at commits endpoint for sha ' +\
-                        '{}, retrying without bookmark or page limit'.format(head))
+                        '{}, retrying without page limit'.format(head))
                     continue
                 except NotFoundException as err:
                     if pagenum != 0:
@@ -1925,11 +1923,22 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                     break
                 elif 'next' in response.links:
                     cururl = response.links['next']['url']
-                # Else if we have reached the end of our data but not found the parents, then we
-                # have a problem
                 else:
-                    raise GithubException('Some commit parents never found: ' + \
-                        ','.join(missingParents.keys()))
+                    # If we have reached the end of our data but not found the parents
+                    # We can try to get those commits directly from Github
+                    missing_parent_sha = list(missingParents.keys())[0]
+                    newurl = 'https://api.github.com/repos/{}/commits/{}' \
+                        .format(repo_path, missing_parent_sha)
+
+                    # We did not find the commits referencing the sha directly
+                    # we have problems
+                    # this is a bit of a safety net as we should throw on a
+                    # NotFoundException if the sha wasn't found
+                    if cururl == newurl:
+                        raise GithubException('Some commit parents never found: ' + \
+                            ','.join(missingParents.keys()))
+
+                    cururl = newurl
 
     # Don't write until the end so that we don't record fetchedCommits if we fail and never get
     # their parents.
