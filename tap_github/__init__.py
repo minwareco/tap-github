@@ -66,7 +66,10 @@ KEY_PROPERTIES = {
 }
 
 class GithubException(Exception):
-    pass
+    server_response = None
+    def __init__(self, message, server_response):
+        super().__init__(message)
+        self.server_response = server_response
 
 class BadCredentialsException(GithubException):
     pass
@@ -246,7 +249,7 @@ def raise_for_error(resp, source, url):
             error_code, url, ERROR_CODE_EXCEPTION_MAPPING.get(error_code, {}).get("message", "Unknown Error") if response_json == {} else response_json)
 
     exc = ERROR_CODE_EXCEPTION_MAPPING.get(error_code, {}).get("raise_exception", GithubException)
-    raise exc(message) from None
+    raise exc(message, response_json) from None
 
 def calculate_seconds(epoch):
     current = time.time()
@@ -2201,10 +2204,19 @@ def get_all_stargazers(schema, repo_path, state, mdata, _start_date):
     return state
 
 def get_repository_data(schema, repo_path, state, mdata, _start_date):
-    repo_metadata = authed_get(
-        'repositories',
-        'https://api.github.com/repos/{}'.format(repo_path)
-    ).json()
+    try:
+        repo_metadata = authed_get(
+            'repositories',
+            'https://api.github.com/repos/{}'.format(repo_path)
+        ).json()
+    except GithubException as ex:
+        # if Github has blocked access to a repo because of their tos, we can ignore it and proceed
+        if ex.server_response and ex.server_response['message'] == 'Repository access blocked' \
+            and ex.server_response['block'] and ex.server_response['block']['reason'] == 'tos':
+            logger.warn('Github blocked access to {} because of a terms of service violation, skipping'.format(repo_path))
+            return
+        else:
+            raise ex
 
     fork_org_name = None
     fork_repo_name = None
