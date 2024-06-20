@@ -62,7 +62,10 @@ KEY_PROPERTIES = {
     'repos': ['id'],
     'teams': ['id'],
     'team_members': ['id'],
-    'team_memberships': ['url']
+    'team_memberships': ['url'],
+    'workflows': ['id'],
+    'workflow_runs': ['id'],
+    'workflow_run_jobs': ['id']
 }
 
 class GithubException(Exception):
@@ -1355,6 +1358,104 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
 
     return state
 
+def get_all_workflows(schemas, repo_path, state, mdata, start_date):
+    stream_name = 'workflows'
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        for response in authed_get_all_pages(
+                stream_name,
+                'https://api.github.com/repos/{}/actions/workflows'.format(repo_path)
+        ):
+            workflows = response.json()['workflows']
+
+            for workflow in workflows:
+                workflow_record = {
+                    **workflow,
+                    '_sdc_repository': repo_path
+                }
+                # transform and write the record
+                with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                    rec = transformer.transform(
+                        workflow_record,
+                        schemas,
+                        metadata=metadata.to_map(mdata)
+                    )
+                singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                counter.increment()
+
+    return state
+
+def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
+    stream_name = 'workflow_runs'
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        for response in authed_get_all_pages(
+            stream_name,
+            'https://api.github.com/repos/{}/actions/runs?per_page=100'.format(repo_path)
+        ):
+            workflow_runs = response.json()['workflow_runs']
+
+            for workflow_run in workflow_runs:
+                workflow_run_record = {
+                    **workflow_run,
+                    '_sdc_repository': repo_path
+                }
+                # transform and write the record
+                with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                    rec = transformer.transform(
+                        workflow_run_record,
+                        schemas,
+                        metadata=metadata.to_map(mdata)
+                    )
+                singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                counter.increment()
+
+                if schemas.get('workflow_run_jobs'):
+                    state = get_all_workflow_run_jobs(
+                        schemas,
+                        repo_path,
+                        workflow_run['id'],
+                        workflow_run['run_attempt'],
+                        state,
+                        mdata,
+                        start_date
+                    )
+
+    return state
+
+def get_all_workflow_run_jobs(schemas, repo_path, run_id, attempt, state, mdata, start_date):
+    stream_name = 'workflow_run_jobs'
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        for response in authed_get_all_pages(
+            stream_name,
+            'https://api.github.com/repos/{}/actions/runs/{}/attempts/{}/jobs?per_page=100'.format(repo_path, run_id, attempt)
+        ):
+            workflow_run_jobs = response.json()['jobs']
+
+            for workflow_run_job in workflow_run_jobs:
+                workflow_run_job_record = {
+                    **workflow_run_job,
+                    '_sdc_repository': repo_path
+                }
+                # transform and write the record
+                with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                    rec = transformer.transform(
+                        workflow_run_job_record,
+                        schemas,
+                        metadata=metadata.to_map(mdata)
+                    )
+                singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                counter.increment()
+
+    return state
+
 def get_all_releases(schemas, repo_path, state, mdata, _start_date):
     # Releases doesn't seem to have an `updated_at` property, yet can be edited.
     # For this reason and since the volume of release can safely be considered low,
@@ -2288,14 +2389,17 @@ SYNC_FUNCTIONS = {
     'teams': get_all_teams,
     'projects_v2': get_all_projects_v2,
     'projects_v2_issues': get_all_projects_v2_issues,
-    'code_coverage': get_all_code_coverage
+    'code_coverage': get_all_code_coverage,
+    'workflows': get_all_workflows,
+    'workflow_runs': get_all_workflow_runs,
 }
 
 SUB_STREAMS = {
     'pull_requests': ['reviews', 'review_comments'],
     'projects': ['project_cards', 'project_columns'],
     'teams': ['team_members', 'team_memberships'],
-    'commit_files': ['refs']
+    'commit_files': ['refs'],
+    'workflow_runs': ['workflow_run_jobs'],
 }
 
 def do_sync(config, state, catalog):
