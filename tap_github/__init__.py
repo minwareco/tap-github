@@ -18,6 +18,7 @@ import io
 import zipfile
 import xml.etree.ElementTree as ET
 import urllib.parse
+from .utils import camel_to_snake_dict
 
 DEBUG = False
 if DEBUG:
@@ -40,6 +41,8 @@ KEY_PROPERTIES = {
     'commits': ['id'],
     'commit_files': ['id'],
     'comments': ['id'],
+    'deployments': ['id'],
+    'deployment_statuses': ['id'],
     'issues': ['id'],
     'assignees': ['id'],
     'collaborators': ['id'],
@@ -1059,8 +1062,8 @@ def authed_graphql_all_pages(source, query_template, query_values, path, page_si
 
         # check for errors
         if data.get('errors') is not None:
-            logger.error('Projects V2 GraphQL query failed on page {}: {}'.format(i + 1, data.get('errors')))
-            raise Exception('Projects V2 GraphQL query failed')
+            logger.error('GraphQL query failed on page {}: {}'.format(i + 1, data.get('errors')))
+            raise Exception('GraphQL query failed')
 
         # extract the data by drilling down into the returned object based on
         # the input path array (e.g. ['organization', 'projectsV2'])
@@ -1390,20 +1393,29 @@ def get_all_workflows(schemas, repo_path, state, mdata, start_date):
 def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
     stream_name = 'workflow_runs'
 
+    bookmark_value = get_bookmark(state, repo_path, stream_name, "since", start_date)
+    
+    if isinstance(bookmark_value, str):
+        bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
+
     extraction_time = singer.utils.now()
 
     with metrics.record_counter(stream_name) as counter:
-        for response in authed_get_all_pages(
-            stream_name,
-            'https://api.github.com/repos/{}/actions/runs?per_page=100'.format(repo_path)
-        ):
-            workflow_runs = response.json()['workflow_runs']
+        url = 'https://api.github.com/repos/{}/actions/runs?per_page=100'.format(repo_path)
+        for response in authed_get_all_pages(stream_name,url):
+            response_json = response.json()
+            workflow_runs = response_json['workflow_runs']
 
             for workflow_run in workflow_runs:
                 workflow_run_record = {
                     **workflow_run,
                     '_sdc_repository': repo_path
                 }
+
+                updated_at_date = singer.utils.strptime_to_utc(workflow_run['updated_at'])
+                if updated_at_date < bookmark_time:
+                    continue
+
                 # transform and write the record
                 with singer.Transformer(pre_hook=utf8_hook) as transformer:
                     rec = transformer.transform(
@@ -1424,6 +1436,9 @@ def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
                         mdata,
                         start_date
                     )
+
+    # set the bookmark to the earliest incomplete workflow run or the latest created workflow run
+    singer.write_bookmark(state, repo_path, stream_name, {'since': singer.utils.strftime(extraction_time)})
 
     return state
 
@@ -1455,6 +1470,171 @@ def get_all_workflow_run_jobs(schemas, repo_path, run_id, attempt, state, mdata,
                 counter.increment()
 
     return state
+
+def get_all_deployments(schemas, repo_path, state, mdata, start_date):
+    stream_name = 'deployments'
+    org = repo_path.split('/')[0]
+    name = repo_path.split('/')[1]
+
+    bookmark_value = get_bookmark(state, repo_path, stream_name, "since", start_date)
+    
+    if isinstance(bookmark_value, str):
+        bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        path = ['repository', 'deployments']
+        query_template = '''query {{
+            repository(owner: "{org}", name:"{name}") {{
+                deployments(first: {page_size}, after: "{cursor}", orderBy:{{field: CREATED_AT, direction: DESC}}) {{
+                    pageInfo {{
+                        endCursor
+                    }}
+                    totalCount
+                    nodes {{
+                        id
+                        task
+                        payload
+                        originalEnvironment
+                        environment
+                        description
+                        state
+                        latestEnvironment
+                        ref {{
+                            id
+                            name
+                            prefix
+                            target {{
+                                id
+                                commitUrl
+                                commitResourcePath
+                                repository {{
+                                    nameWithOwner
+                                    url
+                                }}
+                            }}
+                        }}
+                        creator {{
+                            resourcePath
+                            login
+                            url
+                            avatarUrl
+                            resourcePath
+                        }}
+                        createdAt
+                        updatedAt
+                        repository {{
+                            nameWithOwner
+                            url
+                        }}
+                        latestStatus {{
+                            createdAt
+                            description
+                            environment
+                            environmentUrl
+                            id
+                            logUrl
+                            updatedAt
+                        }}
+                    }}
+                }}
+            }}
+        }}'''
+        query_values = {
+            'org': org,
+            'name': name,
+        }
+
+        for deployments in authed_graphql_all_pages(stream_name, query_template, query_values, path):
+            for deployment in deployments:
+                deployment_record = {
+                    **camel_to_snake_dict(deployment),
+                    '_sdc_repository': repo_path
+                }
+                
+                updated_at_date = singer.utils.strptime_to_utc(deployment['updatedAt'])
+                if updated_at_date < bookmark_time:
+                    continue
+
+                # transform and write record
+                with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                    rec = transformer.transform(deployment_record, schemas, metadata=metadata.to_map(mdata))
+                    singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                
+                counter.increment()
+
+                if schemas.get('deployment_statuses'):
+                    state = get_all_deployment_statuses(
+                        schemas,
+                        repo_path,
+                        deployment['id'],
+                        state,
+                        mdata,
+                        start_date
+                    )
+
+    return state
+
+def get_all_deployment_statuses(schemas, repo_path, deployment_id, _state, mdata, _start_date):
+    stream_name = 'deployment_statuses'
+    org = repo_path.split('/')[0]
+    name = repo_path.split('/')[1]
+
+    extraction_time = singer.utils.now()
+
+    with metrics.record_counter(stream_name) as counter:
+        path = ['node', 'statuses']
+        query_template = '''query {{
+            node(id: "{id}") {{
+                id
+                ... on Deployment {{
+                    statuses(first: {page_size}, after: "{cursor}") {{
+                        pageInfo {{
+                            endCursor
+                        }}
+                        totalCount
+                        nodes {{
+                            creator {{
+                                url
+                                login
+                                avatarUrl
+                                resourcePath
+                            }}
+                            id
+                            description
+                            environment
+                            environmentUrl
+                            logUrl
+                            createdAt
+                            updatedAt
+                            state
+                        }}
+                    }}
+                }}
+            }}
+        }}'''
+        query_values = {
+            'id': deployment_id,
+            'org': org,
+            'name': name,
+        }
+
+        for deployments_statuses in authed_graphql_all_pages(stream_name, query_template, query_values, path):
+            for deployments_status in deployments_statuses:
+                logger.info('deployments_status: {}'.format(json.dumps(deployments_status, indent=2)))
+                deployment_record = {
+                    **camel_to_snake_dict(deployments_status),
+                    'deployment_id': deployment_id,
+                    '_sdc_repository': repo_path
+                }
+                
+                # transform and write record
+                with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                    rec = transformer.transform(deployment_record, schemas, metadata=metadata.to_map(mdata))
+                    singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                
+                counter.increment()
 
 def get_all_releases(schemas, repo_path, state, mdata, _start_date):
     # Releases doesn't seem to have an `updated_at` property, yet can be edited.
@@ -2392,6 +2572,7 @@ SYNC_FUNCTIONS = {
     'code_coverage': get_all_code_coverage,
     'workflows': get_all_workflows,
     'workflow_runs': get_all_workflow_runs,
+    'deployments': get_all_deployments,
 }
 
 SUB_STREAMS = {
@@ -2400,6 +2581,7 @@ SUB_STREAMS = {
     'teams': ['team_members', 'team_memberships'],
     'commit_files': ['refs'],
     'workflow_runs': ['workflow_run_jobs'],
+    'deployments': ['deployment_statuses']
 }
 
 def do_sync(config, state, catalog):
