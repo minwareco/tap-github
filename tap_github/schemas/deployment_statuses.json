@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "deployment_id": {
+      "type": "string"
+    },
+    "creator": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "login": {
+          "type": "string"
+        },
+        "avatar_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "login",
+        "avatarUrl",
+        "resourcePath"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "environment": {
+      "type": "string"
+    },
+    "environment_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "log_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "state": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  }
+}

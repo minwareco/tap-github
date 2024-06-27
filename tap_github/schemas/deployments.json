@@ -1,0 +1,154 @@
+{
+  "type": "object",
+  "properties": {
+    "_sdc_repository": {
+      "type": "string"
+    },
+    "id": {
+      "description": "Unique identifier of the deployment",
+      "type": "string"
+    },
+    "ref": {
+      "description": "The ref to deploy. This can be a branch, tag, or sha.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "description": "Unique identifier of the deployment",
+          "type": "string"
+        },
+        "name": {
+          "description": "Unique identifier of the deployment",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "Unique identifier of the deployment",
+          "type": "string"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "Unique identifier of the deployment",
+              "type": "string"
+            },
+            "commit_url": {
+              "description": "Unique identifier of the deployment",
+              "type": "string"
+            },
+            "commit_resource_path": {
+              "description": "Unique identifier of the deployment",
+              "type": "string"
+            },
+            "repository": {
+              "type": "object",
+              "properties": {
+                "name_with_owner": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "task": {
+      "description": "Parameter to specify a task to execute",
+      "type": "string"
+    },
+    "payload": {
+      "type": [
+        "object",
+        "string"
+      ],
+      "additionalProperties": true
+    },
+    "original_environment": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "environment": {
+      "description": "Name for the target deployment environment.",
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "creator": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "login": {
+          "type": "string"
+        },
+        "avatar_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "resource_path": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "statuses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "environment": {
+            "type": "string"
+          },
+          "environmentUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "logUrl": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
