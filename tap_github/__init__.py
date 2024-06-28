@@ -505,15 +505,15 @@ def refresh_app_token(pem=None, appid=None, org=None):
     if pem == None:
         pem = last_token_pem
     else:
-        last_token_pem = pem;
+        last_token_pem = pem
     if appid == None:
         appid = last_token_appid
     else:
-        last_token_appid = appid;
+        last_token_appid = appid
     if org == None:
         org = last_token_org
     else:
-        last_token_org = org;
+        last_token_org = org
 
     # Set HTTP authorization to JWT
     jwt = generate_jwt(pem, appid)
@@ -1060,10 +1060,13 @@ def authed_graphql_all_pages(source, query_template, query_values, path, page_si
         data = authed_get(source, 'https://api.github.com/graphql', {}, 'post', post_body)
         data = data.json()
 
+        errors = data.get('errors')
         # check for errors
-        if data.get('errors') is not None:
-            logger.error('GraphQL query failed on page {}: {}'.format(i + 1, data.get('errors')))
-            raise Exception('GraphQL query failed')
+        if errors is not None:
+            logger.error('GraphQL query failed on page {}: {}'.format(i + 1, errors))
+            if any(err['type'] == 'FORBIDDEN' for err in errors):
+                raise AuthException(errors[0]['message'], data)
+            raise Exception('GraphQL query failed', errors)
 
         # extract the data by drilling down into the returned object based on
         # the input path array (e.g. ['organization', 'projectsV2'])
@@ -1546,34 +1549,39 @@ def get_all_deployments(schemas, repo_path, state, mdata, start_date):
             'name': name,
         }
 
-        for deployments in authed_graphql_all_pages(stream_name, query_template, query_values, path):
-            for deployment in deployments:
-                deployment_record = {
-                    **camel_to_snake_dict(deployment),
-                    '_sdc_repository': repo_path
-                }
-                
-                updated_at_date = singer.utils.strptime_to_utc(deployment['updatedAt'])
-                if updated_at_date < bookmark_time:
-                    continue
+        try:
+            for deployments in authed_graphql_all_pages(stream_name, query_template, query_values, path):
+                for deployment in deployments:
+                    deployment_record = {
+                        **camel_to_snake_dict(deployment),
+                        '_sdc_repository': repo_path
+                    }
+                    
+                    updated_at_date = singer.utils.strptime_to_utc(deployment['updatedAt'])
+                    if updated_at_date < bookmark_time:
+                        continue
 
-                # transform and write record
-                with singer.Transformer(pre_hook=utf8_hook) as transformer:
-                    rec = transformer.transform(deployment_record, schemas, metadata=metadata.to_map(mdata))
-                    singer.write_record(stream_name, rec, time_extracted=extraction_time)
-                
-                counter.increment()
+                    # transform and write record
+                    with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                        rec = transformer.transform(deployment_record, schemas, metadata=metadata.to_map(mdata))
+                        singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                    
+                    counter.increment()
 
-                if schemas.get('deployment_statuses'):
-                    state = get_all_deployment_statuses(
-                        schemas,
-                        repo_path,
-                        deployment['id'],
-                        state,
-                        mdata,
-                        start_date
-                    )
-
+                    if schemas.get('deployment_statuses'):
+                        state = get_all_deployment_statuses(
+                            schemas,
+                            repo_path,
+                            deployment['id'],
+                            state,
+                            mdata,
+                            start_date
+                        )
+        # if we do NOT have permissions to access deployments
+        # do NOT fail tap, just return
+        except AuthException:
+            logger.warn('Skipping {} because resource is not accessible'.format(stream_name))
+            
     return state
 
 def get_all_deployment_statuses(schemas, repo_path, deployment_id, _state, mdata, _start_date):
