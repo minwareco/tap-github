@@ -1370,26 +1370,30 @@ def get_all_workflows(schemas, repo_path, state, mdata, start_date):
     extraction_time = singer.utils.now()
 
     with metrics.record_counter(stream_name) as counter:
-        for response in authed_get_all_pages(
-                stream_name,
-                'https://api.github.com/repos/{}/actions/workflows'.format(repo_path)
-        ):
-            workflows = response.json()['workflows']
+        try:
+            for response in authed_get_all_pages(
+                    stream_name,
+                    'https://api.github.com/repos/{}/actions/workflows'.format(repo_path)
+            ):
+                workflows = response.json()['workflows']
 
-            for workflow in workflows:
-                workflow_record = {
-                    **workflow,
-                    '_sdc_repository': repo_path
-                }
-                # transform and write the record
-                with singer.Transformer(pre_hook=utf8_hook) as transformer:
-                    rec = transformer.transform(
-                        workflow_record,
-                        schemas,
-                        metadata=metadata.to_map(mdata)
-                    )
-                singer.write_record(stream_name, rec, time_extracted=extraction_time)
-                counter.increment()
+                for workflow in workflows:
+                    workflow_record = {
+                        **workflow,
+                        '_sdc_repository': repo_path
+                    }
+                    # transform and write the record
+                    with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                        rec = transformer.transform(
+                            workflow_record,
+                            schemas,
+                            metadata=metadata.to_map(mdata)
+                        )
+                    singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                    counter.increment()
+        except AuthException:
+            logger.warn('{} data could not be ingested because authorization failed on the API endpoint'
+                    .format(stream_name, repo_path))
 
     return state
 

@@ -8,22 +8,27 @@
       "type": "integer"
     },
     "node_id": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "name": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "path": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "state": {
-      "type": "string",
-      "enum": [
-        "active",
-        "deleted",
-        "disabled_fork",
-        "disabled_inactivity",
-        "disabled_manually"
+      "type": [
+        "null",
+        "string"
       ]
     },
     "created_at": {
@@ -35,13 +40,22 @@
       "format": "date-time"
     },
     "url": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "html_url": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "badge_url": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "deleted_at": {
       "type": [
