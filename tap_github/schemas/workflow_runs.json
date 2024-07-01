@@ -428,71 +428,63 @@
       "type": "string"
     },
     "head_commit": {
-      "anyOf": [
-        {
-          "type": "null"
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "SHA for the commit"
         },
-        {
-          "title": "Simple Commit",
-          "description": "A commit.",
-          "type": "object",
+        "tree_id": {
+          "type": "string",
+          "description": "SHA for the commit's tree"
+        },
+        "message": {
+          "description": "Message describing the purpose of the commit",
+          "type": "string"
+        },
+        "timestamp": {
+          "description": "Timestamp of the commit",
+          "format": "date-time",
+          "type": "string"
+        },
+        "author": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Information about the Git author",
           "properties": {
-            "id": {
-              "type": "string",
-              "description": "SHA for the commit"
-            },
-            "tree_id": {
-              "type": "string",
-              "description": "SHA for the commit's tree"
-            },
-            "message": {
-              "description": "Message describing the purpose of the commit",
+            "name": {
+              "description": "Name of the commit's author",
               "type": "string"
             },
-            "timestamp": {
-              "description": "Timestamp of the commit",
-              "format": "date-time",
+            "email": {
+              "description": "Git email address of the commit's author",
+              "type": "string"
+            }
+          }
+        },
+        "committer": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Information about the Git committer",
+          "properties": {
+            "name": {
+              "description": "Name of the commit's committer",
               "type": "string"
             },
-            "author": {
-              "type": [
-                "object",
-                "null"
-              ],
-              "description": "Information about the Git author",
-              "properties": {
-                "name": {
-                  "description": "Name of the commit's author",
-                  "type": "string"
-                },
-                "email": {
-                  "description": "Git email address of the commit's author",
-                  "type": "string",
-                  "format": "email"
-                }
-              }
-            },
-            "committer": {
-              "type": [
-                "object",
-                "null"
-              ],
-              "description": "Information about the Git committer",
-              "properties": {
-                "name": {
-                  "description": "Name of the commit's committer",
-                  "type": "string"
-                },
-                "email": {
-                  "description": "Git email address of the commit's committer",
-                  "type": "string",
-                  "format": "email"
-                }
-              }
+            "email": {
+              "description": "Git email address of the commit's committer",
+              "type": "string"
             }
           }
         }
-      ]
+      }
     },
     "repository": {
       "title": "Minimal Repository",
