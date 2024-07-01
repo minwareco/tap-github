@@ -1569,7 +1569,7 @@ def get_all_deployments(schemas, repo_path, state, mdata, start_date):
                     counter.increment()
 
                     if schemas.get('deployment_statuses'):
-                        state = get_all_deployment_statuses(
+                        get_all_deployment_statuses(
                             schemas,
                             repo_path,
                             deployment['id'],
@@ -1630,7 +1630,6 @@ def get_all_deployment_statuses(schemas, repo_path, deployment_id, _state, mdata
 
         for deployments_statuses in authed_graphql_all_pages(stream_name, query_template, query_values, path):
             for deployments_status in deployments_statuses:
-                logger.info('deployments_status: {}'.format(json.dumps(deployments_status, indent=2)))
                 deployment_record = {
                     **camel_to_snake_dict(deployments_status),
                     'deployment_id': deployment_id,
