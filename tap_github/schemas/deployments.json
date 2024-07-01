@@ -5,51 +5,67 @@
       "type": "string"
     },
     "id": {
-      "description": "Unique identifier of the deployment",
       "type": "string"
     },
     "ref": {
-      "description": "The ref to deploy. This can be a branch, tag, or sha.",
       "type": [
         "object",
         "null"
       ],
       "properties": {
         "id": {
-          "description": "Unique identifier of the deployment",
           "type": "string"
         },
         "name": {
-          "description": "Unique identifier of the deployment",
-          "type": "string"
+          "type": [
+            "null",
+            "string"
+          ]
         },
         "prefix": {
-          "description": "Unique identifier of the deployment",
-          "type": "string"
+          "type": [
+            "null",
+            "string"
+          ]
         },
         "target": {
-          "type": "object",
+          "type": [
+            "null",
+            "object"
+          ],
           "properties": {
             "id": {
-              "description": "Unique identifier of the deployment",
               "type": "string"
             },
             "commit_url": {
-              "description": "Unique identifier of the deployment",
-              "type": "string"
+              "type": [
+                "null",
+                "string"
+              ]
             },
             "commit_resource_path": {
-              "description": "Unique identifier of the deployment",
-              "type": "string"
+              "type": [
+                "null",
+                "string"
+              ]
             },
             "repository": {
-              "type": "object",
+              "type": [
+                "null",
+                "object"
+              ],
               "properties": {
                 "name_with_owner": {
-                  "type": "string"
+                  "type": [
+                    "null",
+                    "string"
+                  ]
                 },
                 "url": {
-                  "type": "string"
+                  "type": [
+                    "null",
+                    "string"
+                  ]
                 }
               }
             }
@@ -58,8 +74,10 @@
       }
     },
     "task": {
-      "description": "Parameter to specify a task to execute",
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "payload": {
       "type": [
@@ -75,8 +93,10 @@
       ]
     },
     "environment": {
-      "description": "Name for the target deployment environment.",
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "description": {
       "type": [
@@ -91,18 +111,30 @@
       ],
       "properties": {
         "login": {
-          "type": "string"
+          "type": [
+            "null",
+            "string"
+          ]
         },
         "avatar_url": {
-          "type": "string",
+          "type": [
+            "null",
+            "string"
+          ],
           "format": "uri"
         },
         "url": {
-          "type": "string",
+          "type": [
+            "null",
+            "string"
+          ],
           "format": "uri"
         },
         "resource_path": {
-          "type": "string",
+          "type": [
+            "null",
+            "string"
+          ],
           "format": "uri"
         }
       }
@@ -118,10 +150,14 @@
     "statuses": {
       "type": "array",
       "items": {
-        "type": "object",
+        "type": [
+          "null",
+          "object"
+        ],
         "properties": {
-          "createdAt": {
-            "type": "string"
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "description": {
             "type": [
@@ -130,7 +166,10 @@
             ]
           },
           "environment": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "environmentUrl": {
             "type": [
@@ -141,11 +180,15 @@
           "id": {
             "type": "string"
           },
-          "logUrl": {
-            "type": "string"
+          "log_url": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
-          "updatedAt": {
-            "type": "string"
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }

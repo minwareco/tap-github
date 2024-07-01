@@ -5,16 +5,28 @@
       "type": "string"
     },
     "deployment_id": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "creator": {
-      "type": "object",
+      "type": [
+        "null",
+        "object"
+      ],
       "properties": {
         "url": {
-          "type": "string"
+          "type": [
+            "null",
+            "string"
+          ]
         },
         "login": {
-          "type": "string"
+          "type": [
+            "null",
+            "string"
+          ]
         },
         "avatar_url": {
           "type": [
@@ -23,18 +35,18 @@
           ]
         },
         "resource_path": {
-          "type": "string"
+          "type": [
+            "null",
+            "string"
+          ]
         }
-      },
-      "required": [
-        "url",
-        "login",
-        "avatarUrl",
-        "resourcePath"
-      ]
+      }
     },
     "created_at": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "description": {
       "type": [
@@ -43,7 +55,10 @@
       ]
     },
     "environment": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "environment_url": {
       "type": [
@@ -58,10 +73,16 @@
       ]
     },
     "state": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     },
     "updated_at": {
-      "type": "string"
+      "type": [
+        "null",
+        "string"
+      ]
     }
   }
 }
