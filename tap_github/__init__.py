@@ -2,6 +2,7 @@ import argparse
 import os
 import json
 import collections
+import sys
 import time
 import requests
 import singer
@@ -1332,7 +1333,7 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
                             else:
                                 # fall back to full path
                                 relative_path = full_path
-                            
+
                             coverage = {
                                 '_sdc_repository': repo_path,
                                 'id': '{}/{}'.format(repo_path, relative_path),
@@ -1401,7 +1402,7 @@ def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
     stream_name = 'workflow_runs'
 
     bookmark_value = get_bookmark(state, repo_path, stream_name, "since", start_date)
-    
+
     if isinstance(bookmark_value, str):
         bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
 
@@ -1484,7 +1485,7 @@ def get_all_deployments(schemas, repo_path, state, mdata, start_date):
     name = repo_path.split('/')[1]
 
     bookmark_value = get_bookmark(state, repo_path, stream_name, "since", start_date)
-    
+
     if isinstance(bookmark_value, str):
         bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
 
@@ -1560,7 +1561,7 @@ def get_all_deployments(schemas, repo_path, state, mdata, start_date):
                         **camel_to_snake_dict(deployment),
                         '_sdc_repository': repo_path
                     }
-                    
+
                     updated_at_date = singer.utils.strptime_to_utc(deployment['updatedAt'])
                     if updated_at_date < bookmark_time:
                         continue
@@ -1569,7 +1570,7 @@ def get_all_deployments(schemas, repo_path, state, mdata, start_date):
                     with singer.Transformer(pre_hook=utf8_hook) as transformer:
                         rec = transformer.transform(deployment_record, schemas, metadata=metadata.to_map(mdata))
                         singer.write_record(stream_name, rec, time_extracted=extraction_time)
-                    
+
                     counter.increment()
 
                     if schemas.get('deployment_statuses'):
@@ -1585,7 +1586,7 @@ def get_all_deployments(schemas, repo_path, state, mdata, start_date):
         # do NOT fail tap, just return
         except AuthException:
             logger.warn('Skipping {} because resource is not accessible'.format(stream_name))
-            
+
     return state
 
 def get_all_deployment_statuses(schemas, repo_path, deployment_id, _state, mdata, _start_date):
@@ -1639,12 +1640,12 @@ def get_all_deployment_statuses(schemas, repo_path, deployment_id, _state, mdata
                     'deployment_id': deployment_id,
                     '_sdc_repository': repo_path
                 }
-                
+
                 # transform and write record
                 with singer.Transformer(pre_hook=utf8_hook) as transformer:
                     rec = transformer.transform(deployment_record, schemas, metadata=metadata.to_map(mdata))
                     singer.write_record(stream_name, rec, time_extracted=extraction_time)
-                
+
                 counter.increment()
 
 def get_all_releases(schemas, repo_path, state, mdata, _start_date):
@@ -2157,7 +2158,7 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
             missingParents = {}
 
             # We don't want to use a time-based bookmark becuase it could skip commits
-            # that are pushed after they are committed. Using only the fetchedCommits as 
+            # that are pushed after they are committed. Using only the fetchedCommits as
             # our bookmark.
             cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}' \
                 .format(repo_path, head)
@@ -2628,17 +2629,27 @@ def do_sync(config, state, catalog):
     else:
         repositories = list(filter(None, config['repository'].split(' ')))
 
+    if 'exclude_repositories' in config:
+        excludeSplit = config['exclude_repositories'].split(' ')
+    else:
+        excludeSplit = []
+
     # Expand org/*
     allRepos = []
     for repo in repositories:
         repoSplit = repo.split('/')
+        if len(repoSplit) < 2:
+            logger.error('Invalid repository format: %s', repo)
+            sys.exit(1)
         if repoSplit[1] == '*':
             org = repoSplit[0]
             access_token = set_auth_headers(config, org)
             orgRepos = getReposForOrg(repoSplit[0])
+            orgRepos = [r for r in orgRepos if r not in excludeSplit]
             allRepos.extend(orgRepos)
         else:
-            allRepos.append(repo)
+            if repo not in excludeSplit:
+                allRepos.append(repo)
 
     state = translate_state(state, catalog, allRepos)
 
