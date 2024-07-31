@@ -31,6 +31,9 @@ from gitlocal import GitLocal
 
 from singer import metadata
 
+# Will be set by config as global
+api_url = ''
+
 session = requests.Session()
 logger = singer.get_logger()
 
@@ -454,7 +457,7 @@ def generate_jwt(pem, appid):
     return encoded_jwt
 
 
-def fetch_installations():
+def fetch_installations(api_url):
     '''
     Before this function is called, an authorization header with a JWT bearer token should be set in
     the session.
@@ -469,7 +472,7 @@ def fetch_installations():
     account_to_installation = {}
     for response in authed_get_all_pages(
         'installations',
-        'https://api.github.com/app/installations'
+        '{}app/installations'.format(api_url)
     ):
         installations = response.json()
         for installation in installations:
@@ -483,7 +486,7 @@ def get_installation_token(installation_id):
     '''
     response = authed_get(
         'installation_token',
-        'https://api.github.com/app/installations/{}/access_tokens'.format(installation_id),
+        '{}app/installations/{}/access_tokens'.format(api_url, installation_id),
         overrideMethod='post'
     )
     token_info = response.json()
@@ -544,7 +547,7 @@ def refresh_app_token(pem=None, appid=None, org=None):
 accountTypeCache = {}
 def getAccountType(org):
     if not org in accountTypeCache:
-        response = authed_get('account', f'https://api.github.com/users/{org}')
+        response = authed_get('account', f'{api_url}users/{org}')
         account = response.json()
         accountTypeCache[org] = account['type'].upper()
 
@@ -555,7 +558,7 @@ def getReposForOrg(org):
     orgRepos = []
     for response in authed_get_all_pages(
         'repositories',
-        f'https://api.github.com/{acctPathComponent}/{org}/repos?per_page=100'
+        f'{api_url}{acctPathComponent}/{org}/repos?per_page=100'
     ):
         repos = response.json()
         for repo in repos:
@@ -566,11 +569,11 @@ def getReposForOrg(org):
 
     return orgRepos
 
-def getOrgs():
+def getOrgs(api_url):
     orgs = []
     for response in authed_get_all_pages(
         'repositories',
-        f'https://api.github.com/user/orgs?per_page=100'
+        f'{api_url}user/orgs?per_page=100'
     ):
         orgPayloads = response.json()
         for org in orgPayloads:
@@ -612,7 +615,7 @@ def verify_access_for_repo(config):
     for repo in repositories:
         logger.info("Verifying access of repository: %s", repo)
 
-        url_for_repo = "https://api.github.com/repos/{}/commits".format(repo)
+        url_for_repo = "{}repos/{}/commits".format(api_url, repo)
 
         # Verifying for Repo access
         verify_repo_access(url_for_repo, repo)
@@ -641,7 +644,7 @@ def get_all_teams(schemas, repo_path, state, mdata, _start_date):
         try:
             for response in authed_get_all_pages(
                     'teams',
-                    'https://api.github.com/orgs/{}/teams?sort=created_at&direction=desc'.format(org)
+                    '{}orgs/{}/teams?sort=created_at&direction=desc'.format(api_url, org)
             ):
                 teams = response.json()
                 extraction_time = singer.utils.now()
@@ -686,7 +689,7 @@ def get_all_team_members(team_slug, schemas, repo_path, state, mdata):
     with metrics.record_counter('team_members') as counter:
         for response in authed_get_all_pages(
                 'team_members',
-                'https://api.github.com/orgs/{}/teams/{}/members?sort=created_at&direction=desc'.format(org, team_slug)
+                '{}orgs/{}/teams/{}/members?sort=created_at&direction=desc'.format(api_url, org, team_slug)
         ):
             team_members = response.json()
             for r in team_members:
@@ -706,7 +709,7 @@ def get_all_team_memberships(team_slug, schemas, repo_path, state, mdata):
 
     for response in authed_get_all_pages(
             'team_members',
-            'https://api.github.com/orgs/{}/teams/{}/members?sort=created_at&direction=desc'.format(org, team_slug)
+            '{}orgs/{}/teams/{}/members?sort=created_at&direction=desc'.format(api_url, org, team_slug)
         ):
         team_members = response.json()
         with metrics.record_counter('team_memberships') as counter:
@@ -714,7 +717,7 @@ def get_all_team_memberships(team_slug, schemas, repo_path, state, mdata):
                 username = r['login']
                 for res in authed_get_all_pages(
                         'memberships',
-                        'https://api.github.com/orgs/{}/teams/{}/memberships/{}'.format(org, team_slug, username)
+                        '{}orgs/{}/teams/{}/memberships/{}'.format(api_url, org, team_slug, username)
                 ):
                     team_membership = res.json()
                     team_membership['_sdc_repository'] = repo_path
@@ -736,7 +739,7 @@ def get_all_issue_events(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter('issue_events') as counter:
         for response in authed_get_all_pages(
                 'issue_events',
-                'https://api.github.com/repos/{}/issues/events?per_page=100&sort=created_at&direction=desc'.format(repo_path),
+                '{}repos/{}/issues/events?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path),
                 { 'Accept': 'application/vnd.github.starfox-preview+json' }
         ):
             events = response.json()
@@ -764,7 +767,7 @@ def get_all_issue_events(schemas, repo_path, state, mdata, start_date):
 def get_all_events(schemas, repo_path, state, mdata, start_date):
     # Incremental sync off `created_at`
     # https://developer.github.com/v3/issues/events/#list-events-for-a-repository
-    # 'https://api.github.com/repos/{}/issues/events?sort=created_at&direction=desc'.format(repo_path)
+    # '{}repos/{}/issues/events?sort=created_at&direction=desc'.format(api_url, repo_path)
 
     CURRENT_EVENTS_VERSION = '1.0'
     bookmark_value = get_bookmark(state, repo_path, "events", "since", start_date)
@@ -777,7 +780,7 @@ def get_all_events(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter('events') as counter:
         for response in authed_get_all_pages(
                 'events',
-                'https://api.github.com/repos/{}/events?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+                '{}repos/{}/events?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path)
         ):
             events = response.json()
             extraction_time = singer.utils.now()
@@ -807,7 +810,7 @@ def get_all_events(schemas, repo_path, state, mdata, start_date):
 def get_all_issue_milestones(schemas, repo_path, state, mdata, start_date):
     # Incremental sync off `due on` ??? confirm.
     # https://developer.github.com/v3/issues/milestones/#list-milestones-for-a-repository
-    # 'https://api.github.com/repos/{}/milestones?sort=created_at&direction=desc'.format(repo_path)
+    # '{}repos/{}/milestones?sort=created_at&direction=desc'.format(api_url, repo_path)
     bookmark_value = get_bookmark(state, repo_path, "issue_milestones", "since", start_date)
     if bookmark_value:
         bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
@@ -817,7 +820,7 @@ def get_all_issue_milestones(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter('issue_milestones') as counter:
         for response in authed_get_all_pages(
                 'milestones',
-                'https://api.github.com/repos/{}/milestones?state=all&per_page=100&direction=desc'.format(repo_path)
+                '{}repos/{}/milestones?state=all&per_page=100&direction=desc'.format(api_url, repo_path)
         ):
             milestones = response.json()
             extraction_time = singer.utils.now()
@@ -843,12 +846,12 @@ def get_all_issue_milestones(schemas, repo_path, state, mdata, start_date):
 def get_all_issue_labels(schemas, repo_path, state, mdata, _start_date):
     # https://developer.github.com/v3/issues/labels/
     # not sure if incremental key
-    # 'https://api.github.com/repos/{}/labels?sort=created_at&direction=desc'.format(repo_path)
+    # '{}repos/{}/labels?sort=created_at&direction=desc'.format(api_url, repo_path)
 
     with metrics.record_counter('issue_labels') as counter:
         for response in authed_get_all_pages(
                 'issue_labels',
-                'https://api.github.com/repos/{}/labels?per_page=100'.format(repo_path)
+                '{}repos/{}/labels?per_page=100'.format(api_url, repo_path)
         ):
             issue_labels = response.json()
             extraction_time = singer.utils.now()
@@ -867,7 +870,7 @@ def get_all_issue_labels(schemas, repo_path, state, mdata, _start_date):
 def get_all_commit_comments(schemas, repo_path, state, mdata, start_date):
     # https://developer.github.com/v3/repos/comments/
     # updated_at? incremental
-    # 'https://api.github.com/repos/{}/comments?sort=created_at&direction=desc'.format(repo_path)
+    # '{}repos/{}/comments?sort=created_at&direction=desc'.format(api_url, repo_path)
     bookmark_value = get_bookmark(state, repo_path, "commit_comments", "since", start_date)
     if bookmark_value:
         bookmark_time = singer.utils.strptime_to_utc(bookmark_value)
@@ -877,7 +880,7 @@ def get_all_commit_comments(schemas, repo_path, state, mdata, start_date):
     with metrics.record_counter('commit_comments') as counter:
         for response in authed_get_all_pages(
                 'commit_comments',
-                'https://api.github.com/repos/{}/comments?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+                '{}repos/{}/comments?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path)
         ):
             commit_comments = response.json()
             extraction_time = singer.utils.now()
@@ -929,9 +932,9 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
         #pylint: disable=too-many-nested-blocks
         try:
             if orgLevel:
-                projectUri = 'https://api.github.com/orgs/{}/projects?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+                projectUri = '{}orgs/{}/projects?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path)
             else:
-                projectUri = 'https://api.github.com/repos/{}/projects?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+                projectUri = '{}repos/{}/projects?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path)
 
             for response in authed_get_all_pages(
                     'projects',
@@ -973,6 +976,8 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
                                     singer.write_bookmark(state, repo_path, 'project_cards', {'since': singer.utils.strftime(extraction_time)})
         except GoneError:
             logger.info('Received 410 Gone when attempting to access projects (they may be disabled for this repo), skipping import')
+        except NotFoundException:
+            logger.info('Received 404 Not Found when attempting to access projects (the access token may not have access to projects), skipping import')
     return state
 
 def get_all_project_cards(column_id, schemas, repo_path, state, mdata, start_date):
@@ -985,7 +990,7 @@ def get_all_project_cards(column_id, schemas, repo_path, state, mdata, start_dat
     with metrics.record_counter('project_cards') as counter:
         for response in authed_get_all_pages(
                 'project_cards',
-                'https://api.github.com/projects/columns/{}/cards?per_page=100&sort=created_at&direction=desc'.format(column_id)
+                '{}projects/columns/{}/cards?per_page=100&sort=created_at&direction=desc'.format(api_url, column_id)
         ):
             project_cards = response.json()
             for r in project_cards:
@@ -1016,7 +1021,7 @@ def get_all_project_columns(project_id, schemas, repo_path, state, mdata, start_
     with metrics.record_counter('project_columns') as counter:
         for response in authed_get_all_pages(
                 'project_columns',
-                'https://api.github.com/projects/{}/columns?per_page=100&sort=created_at&direction=desc'.format(project_id)
+                '{}projects/{}/columns?per_page=100&sort=created_at&direction=desc'.format(api_url, project_id)
         ):
             project_columns = response.json()
             for r in project_columns:
@@ -1058,7 +1063,7 @@ def authed_graphql_all_pages(source, query_template, query_values, path, page_si
 
         # make GraphQL query
         post_body = json.dumps({ 'query': query })
-        data = authed_get(source, 'https://api.github.com/graphql', {}, 'post', post_body)
+        data = authed_get(source, f'{api_url}graphql', {}, 'post', post_body)
         data = data.json()
 
         errors = data.get('errors')
@@ -1143,6 +1148,9 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
             projects_v2.extend(projects)
 
             for project in projects:
+                # Can happen with access tokens that can't access projects
+                if not project:
+                    continue
                 project['_sdc_org'] = org
                 # transform and write record
                 with singer.Transformer(pre_hook=utf8_hook) as transformer:
@@ -1236,6 +1244,9 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
         # for each project we cached during get_all_projects_v2, page through its
         # associated issues
         for project in projects_v2:
+            # Can happen with access tokens that can't access projects
+            if not project:
+                continue
             query_values = {
                 'org': org,
                 'project_number': project['number'],
@@ -1284,7 +1295,7 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
         try:
             for response in authed_get_all_pages(
                     stream_name,
-                    'https://api.github.com/repos/{}/actions/artifacts?name={}'.format(repo_path, artifact_name_encoded)
+                    '{}repos/{}/actions/artifacts?name={}'.format(api_url, repo_path, artifact_name_encoded)
             ):
                 artifacts = filter(lambda a: a['expired'] != True, response.json()['artifacts'])
                 for artifact in artifacts:
@@ -1374,7 +1385,7 @@ def get_all_workflows(schemas, repo_path, state, mdata, start_date):
         try:
             for response in authed_get_all_pages(
                     stream_name,
-                    'https://api.github.com/repos/{}/actions/workflows'.format(repo_path)
+                    '{}repos/{}/actions/workflows'.format(api_url, repo_path)
             ):
                 workflows = response.json()['workflows']
 
@@ -1409,7 +1420,7 @@ def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
     extraction_time = singer.utils.now()
 
     with metrics.record_counter(stream_name) as counter:
-        url = 'https://api.github.com/repos/{}/actions/runs?per_page=100'.format(repo_path)
+        url = '{}repos/{}/actions/runs?per_page=100'.format(api_url, repo_path)
         for response in authed_get_all_pages(stream_name,url):
             response_json = response.json()
             workflow_runs = response_json['workflow_runs']
@@ -1458,7 +1469,7 @@ def get_all_workflow_run_jobs(schemas, repo_path, run_id, attempt, state, mdata,
     with metrics.record_counter(stream_name) as counter:
         for response in authed_get_all_pages(
             stream_name,
-            'https://api.github.com/repos/{}/actions/runs/{}/attempts/{}/jobs?per_page=100'.format(repo_path, run_id, attempt)
+            '{}repos/{}/actions/runs/{}/attempts/{}/jobs?per_page=100'.format(api_url, repo_path, run_id, attempt)
         ):
             workflow_run_jobs = response.json()['jobs']
 
@@ -1656,7 +1667,7 @@ def get_all_releases(schemas, repo_path, state, mdata, _start_date):
     with metrics.record_counter('releases') as counter:
         for response in authed_get_all_pages(
                 'releases',
-                'https://api.github.com/repos/{}/releases?per_page=100&sort=created_at&direction=desc'.format(repo_path)
+                '{}repos/{}/releases?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path)
         ):
             releases = response.json()
             extraction_time = singer.utils.now()
@@ -1690,7 +1701,7 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
         with metrics.record_counter('reviews') as reviews_counter:
             for response in authed_get_all_pages(
                     'pull_requests',
-                    'https://api.github.com/repos/{}/pulls?per_page=100&state=all&sort=updated&direction=desc'.format(repo_path)
+                    '{}repos/{}/pulls?per_page=100&state=all&sort=updated&direction=desc'.format(api_url, repo_path)
             ):
                 pull_requests = response.json()
                 extraction_time = singer.utils.now()
@@ -1747,7 +1758,7 @@ def get_all_pull_requests(schemas, repo_path, state, mdata, start_date):
 def get_reviews_for_pr(pr_number, schema, repo_path, state, mdata):
     for response in authed_get_all_pages(
             'reviews',
-            'https://api.github.com/repos/{}/pulls/{}/reviews?per_page=100'.format(repo_path,pr_number)
+            '{}repos/{}/pulls/{}/reviews?per_page=100'.format(api_url, repo_path,pr_number)
     ):
         reviews = response.json()
         for review in reviews:
@@ -1762,7 +1773,7 @@ def get_reviews_for_pr(pr_number, schema, repo_path, state, mdata):
 def get_review_comments_for_pr(pr_number, schema, repo_path, state, mdata):
     for response in authed_get_all_pages(
             'comments',
-            'https://api.github.com/repos/{}/pulls/{}/comments?per_page=100'.format(repo_path,pr_number)
+            '{}repos/{}/pulls/{}/comments?per_page=100'.format(api_url, repo_path,pr_number)
     ):
         review_comments = response.json()
         for comment in review_comments:
@@ -1784,7 +1795,7 @@ def get_all_assignees(schema, repo_path, state, mdata, _start_date):
     with metrics.record_counter('assignees') as counter:
         for response in authed_get_all_pages(
                 'assignees',
-                'https://api.github.com/repos/{}/assignees?per_page=100'.format(repo_path)
+                '{}repos/{}/assignees?per_page=100'.format(api_url, repo_path)
         ):
             assignees = response.json()
             extraction_time = singer.utils.now()
@@ -1806,7 +1817,7 @@ def get_all_collaborators(schema, repo_path, state, mdata, _start_date):
         try:
             for response in authed_get_all_pages(
                     'collaborators',
-                    'https://api.github.com/repos/{}/collaborators?per_page=100'.format(repo_path)
+                    '{}repos/{}/collaborators?per_page=100'.format(api_url, repo_path)
             ):
                 collaborators = response.json()
                 extraction_time = singer.utils.now()
@@ -1888,7 +1899,7 @@ def get_repo_metadata(repo_path):
     if not repo_path in repo_cache:
         for response in authed_get_all_pages(
                 'branches',
-                'https://api.github.com/repos/{}'.format(repo_path)
+                '{}repos/{}'.format(api_url, repo_path)
         ):
             repo_cache[repo_path] = response.json()
             # Will never be multiple pages
@@ -1910,7 +1921,7 @@ def get_all_branches(schema, repo_path,  state, mdata, start_date):
     with metrics.record_counter('branches') as counter:
         for response in authed_get_all_pages(
                 'branches',
-                'https://api.github.com/repos/{}/branches?per_page=100'.format(repo_path)
+                '{}repos/{}/branches?per_page=100'.format(api_url, repo_path)
         ):
             branches = response.json()
             extraction_time = singer.utils.now()
@@ -1941,7 +1952,7 @@ def get_all_heads_for_commits(repo_path):
         BRANCH_CACHE[repo_path] = cur_cache
         for response in authed_get_all_pages(
             'branches',
-            'https://api.github.com/repos/{}/branches?per_page=100'.format(repo_path)
+            '{}repos/{}/branches?per_page=100'.format(api_url, repo_path)
         ):
             branches = response.json()
             for branch in branches:
@@ -1957,7 +1968,7 @@ def get_all_heads_for_commits(repo_path):
         PR_CACHE[repo_path] = cur_cache
         for response in authed_get_all_pages(
             'pull_requests',
-            'https://api.github.com/repos/{}/pulls?per_page=100&state=all'.format(repo_path)
+            '{}repos/{}/pulls?per_page=100&state=all'.format(api_url, repo_path)
         ):
             pull_requests = response.json()
             for pr in pull_requests:
@@ -2008,7 +2019,7 @@ def get_commit_detail_api(commit, repo_path):
     commit['files'] = []
     for commit_detail in authed_get_all_pages(
         'commits',
-        'https://api.github.com/repos/{}/commits/{}'.format(repo_path, commit['sha'])
+        '{}repos/{}/commits/{}'.format(api_url, repo_path, commit['sha'])
     ):
         # TODO: test fetching multiple pages of changed files if the changed file count
         # exceeds 300.
@@ -2160,8 +2171,8 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
             # We don't want to use a time-based bookmark becuase it could skip commits
             # that are pushed after they are committed. Using only the fetchedCommits as
             # our bookmark.
-            cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}' \
-                .format(repo_path, head)
+            cururl = '{}repos/{}/commits?per_page=100&sha={}' \
+                .format(api_url, repo_path, head)
             pagenum = 0
             while True:
                 # Get commits one page at a time
@@ -2173,8 +2184,8 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
 
                     # So this can happen when the sha isn't found, but correctly produces a 404
                     # when stripping off the per-page and since
-                    cururl = 'https://api.github.com/repos/{}/commits?sha={}' \
-                        .format(repo_path, head)
+                    cururl = '{}repos/{}/commits?sha={}' \
+                        .format(api_url, repo_path, head)
                     logger.warning('Received internal server error at commits endpoint for sha ' +\
                         '{}, retrying without page limit'.format(head))
                     continue
@@ -2223,8 +2234,8 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
                     # If we have reached the end of our data but not found the parents
                     # We can try to get those commits directly from Github
                     missing_parent_sha = list(missingParents.keys())[0]
-                    newurl = 'https://api.github.com/repos/{}/commits/{}' \
-                        .format(repo_path, missing_parent_sha)
+                    newurl = '{}repos/{}/commits/{}' \
+                        .format(api_url, repo_path, missing_parent_sha)
 
                     # We did not find the commits referencing the sha directly
                     # we have problems
@@ -2319,8 +2330,8 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
                 # missing from github's API
                 continue
 
-            cururl = 'https://api.github.com/repos/{}/commits?per_page=100&sha={}&since={}' \
-                .format(repo_path, headSha, bookmark)
+            cururl = '{}repos/{}/commits?per_page=100&sha={}&since={}' \
+                .format(api_url, repo_path, headSha, bookmark)
             offset = 0
             while True:
                 # Get commits one page at a time
@@ -2421,7 +2432,7 @@ def get_all_issues(schema, repo_path,  state, mdata, start_date):
     with metrics.record_counter('issues') as counter:
         for response in authed_get_all_pages(
                 'issues',
-                'https://api.github.com/repos/{}/issues?per_page=100&state=all&sort=updated&direction=asc{}'.format(repo_path, query_string)
+                '{}repos/{}/issues?per_page=100&state=all&sort=updated&direction=asc{}'.format(api_url, repo_path, query_string)
         ):
             issues = response.json()
             extraction_time = singer.utils.now()
@@ -2454,8 +2465,8 @@ def get_all_comments(schema, repo_path, state, mdata, start_date):
     with metrics.record_counter('comments') as counter:
         for response in authed_get_all_pages(
                 'comments',
-                'https://api.github.com/repos/{}/issues/comments?per_page=100&sort=updated' \
-                '&direction=asc{}'.format(repo_path, query_string)
+                '{}repos/{}/issues/comments?per_page=100&sort=updated' \
+                '&direction=asc{}'.format(api_url, repo_path, query_string)
         ):
             comments = response.json()
             extraction_time = singer.utils.now()
@@ -2480,7 +2491,7 @@ def get_all_stargazers(schema, repo_path, state, mdata, _start_date):
     with metrics.record_counter('stargazers') as counter:
         for response in authed_get_all_pages(
                 'stargazers',
-                'https://api.github.com/repos/{}/stargazers?per_page=100'.format(repo_path), stargazers_headers
+                '{}repos/{}/stargazers?per_page=100'.format(api_url, repo_path), stargazers_headers
         ):
             stargazers = response.json()
             extraction_time = singer.utils.now()
@@ -2500,7 +2511,7 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
     try:
         repo_metadata = authed_get(
             'repositories',
-            'https://api.github.com/repos/{}'.format(repo_path)
+            '{}repos/{}'.format(api_url, repo_path)
         ).json()
     except GithubException as ex:
         # if Github has blocked access to a repo because of their tos, we can ignore it and proceed
@@ -2599,6 +2610,7 @@ SUB_STREAMS = {
 def do_sync(config, state, catalog):
     global process_globals
     global code_coverage_artifact_name
+    global api_url
 
     start_date = config['start_date'] if 'start_date' in config else None
 
@@ -2609,6 +2621,12 @@ def do_sync(config, state, catalog):
     # optionally override the default code coverage artifact name
     if 'code_coverage_artifact_name' in config:
         code_coverage_artifact_name = config['code_coverage_artifact_name']
+    api_url = 'https://api.github.com/'
+    if 'base_url' in config:
+        api_url = config['base_url']
+        if api_url[-1] != '/':
+            api_url += '/'
+        logger.info('Using GitHub API URL {}'.format(api_url))
 
     logger.info('Process globals = {}'.format(str(process_globals)))
     logger.info('Code coverage artifact name = {}'.format(code_coverage_artifact_name))
