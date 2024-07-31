@@ -457,7 +457,7 @@ def generate_jwt(pem, appid):
     return encoded_jwt
 
 
-def fetch_installations(api_url):
+def fetch_installations():
     '''
     Before this function is called, an authorization header with a JWT bearer token should be set in
     the session.
@@ -569,7 +569,7 @@ def getReposForOrg(org):
 
     return orgRepos
 
-def getOrgs(api_url):
+def getOrgs():
     orgs = []
     for response in authed_get_all_pages(
         'repositories',
