@@ -1069,9 +1069,9 @@ def authed_graphql_all_pages(source, query_template, query_values, path, page_si
         errors = data.get('errors')
         # check for errors
         if errors is not None:
-            logger.error('GraphQL query failed on page {}: {}'.format(i + 1, errors))
-            if any(err['type'] == 'FORBIDDEN' for err in errors):
+            if any(err['type'] in ['FORBIDDEN', 'INSUFFICIENT_SCOPES'] for err in errors):
                 raise AuthException(errors[0]['message'], data)
+            logger.error('GraphQL query failed on page {}: {}'.format(i + 1, errors))
             raise Exception('GraphQL query failed', errors)
 
         # extract the data by drilling down into the returned object based on
@@ -1143,20 +1143,23 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
             'acctObjectName': acctObjectName,
         }
 
-        for projects in authed_graphql_all_pages(stream_name, query_template, query_values, path):
-            # store in cache for later usage in child streams
-            projects_v2.extend(projects)
+        try:
+            for projects in authed_graphql_all_pages(stream_name, query_template, query_values, path):
+                # store in cache for later usage in child streams
+                projects_v2.extend(projects)
 
-            for project in projects:
-                # Can happen with access tokens that can't access projects
-                if not project:
-                    continue
-                project['_sdc_org'] = org
-                # transform and write record
-                with singer.Transformer(pre_hook=utf8_hook) as transformer:
-                    rec = transformer.transform(project, schemas, metadata=metadata.to_map(mdata))
-                singer.write_record(stream_name, rec, time_extracted=extraction_time)
-                counter.increment()
+                for project in projects:
+                    # Can happen with access tokens that can't access projects
+                    if not project:
+                        continue
+                    project['_sdc_org'] = org
+                    # transform and write record
+                    with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                        rec = transformer.transform(project, schemas, metadata=metadata.to_map(mdata))
+                    singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                    counter.increment()
+        except AuthException as err:
+            logger.warn('Projects v2 data could not be ingested because authorization failed')
 
     return state
 
