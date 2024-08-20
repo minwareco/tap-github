@@ -4,6 +4,7 @@ import json
 import collections
 import sys
 import time
+import traceback
 import requests
 import singer
 import singer.bookmarks as bookmarks
@@ -2765,7 +2766,6 @@ def do_sync(config, state, catalog):
         # right now and running out of memory as a result.
         singer.write_state(state)
 
-@singer.utils.handle_top_exception(logger)
 def main():
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
 
@@ -2775,18 +2775,16 @@ def main():
         else:
             catalog = args.properties if args.properties else get_catalog()
             do_sync(args.config, args.state, catalog)
-    except requests.exceptions.JSONDecodeError as err:
+    except Exception as exc:
         global latest_response
         global latest_request
-        logger.error(
-            'While fetching {}, received unprocessable data.\nResponse Code: {}\nResponse Data: {}'.format(
+        logger.critical(traceback.format_exc())
+        for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
                 latest_request['url'],
                 latest_response.status_code,
                 latest_response.text
-            )
-        )
-
-        raise err
-
+            ).splitlines():
+            logger.critical(line)
+        sys.exit(1)
 if __name__ == "__main__":
     main()
