@@ -2778,7 +2778,8 @@ def main():
     except Exception as exc:
         global latest_response
         global latest_request
-        logger.critical(traceback.format_exc())
+        for line in traceback.format_exc().splitlines():
+            logger.critical(line)
         for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
                 latest_request['url'],
                 latest_response.status_code,
