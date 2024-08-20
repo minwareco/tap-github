@@ -4,6 +4,7 @@ import json
 import collections
 import sys
 import time
+import traceback
 import requests
 import singer
 import singer.bookmarks as bookmarks
@@ -284,7 +285,11 @@ def rate_throttling(response):
 MAX_RETRY_TIME = 120
 RETRY_WAIT = 15  # Wait between requests when the server is struggling
 def authed_get(source, url, headers={}, overrideMethod='get', data=None):
+    global latest_response
+    global latest_request
     with metrics.http_request_timer(source) as timer:
+        timer.tags['url'] = url
+        timer.tags['method'] = overrideMethod
         session.headers.update(headers)
         retry_time = 0
         just_refreshed_token = False
@@ -292,7 +297,9 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
         network_max_retries = 5
         while True:
             try:
+                latest_request = { 'method': overrideMethod, 'url': url, 'data': data}
                 resp = session.request(method=overrideMethod, url=url, data=data)
+                latest_response = resp
                 # If there is another 401 error right after refreshing, then don't try again. Otherwise,
                 # get a new installation token for the github app and try again in case there is a
                 # token expiration
@@ -329,6 +336,7 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
                     logger.error('Max retries reached for network request of URL: {}'.format(url))
                     raise err
 
+        timer.tags['response_type'] = resp.headers.get('content-type', None)
         timer.tags[metrics.Tag.http_status_code] = resp.status_code
         rate_throttling(resp)
         return resp
@@ -2632,7 +2640,6 @@ def do_sync(config, state, catalog):
         logger.info('Using GitHub API URL {}'.format(api_url))
 
     logger.info('Process globals = {}'.format(str(process_globals)))
-    logger.info('Code coverage artifact name = {}'.format(code_coverage_artifact_name))
 
     # get selected streams, make sure stream dependencies are met
     selected_stream_ids = get_selected_streams(catalog)
@@ -2759,15 +2766,27 @@ def do_sync(config, state, catalog):
         # right now and running out of memory as a result.
         singer.write_state(state)
 
-@singer.utils.handle_top_exception(logger)
 def main():
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
 
-    if args.discover:
-        do_discover(args.config)
-    else:
-        catalog = args.properties if args.properties else get_catalog()
-        do_sync(args.config, args.state, catalog)
+    try:
+        if args.discover:
+            do_discover(args.config)
+        else:
+            catalog = args.properties if args.properties else get_catalog()
+            do_sync(args.config, args.state, catalog)
+    except Exception as exc:
+        global latest_response
+        global latest_request
+        for line in traceback.format_exc().splitlines():
+            logger.critical(line)
+        for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
+                latest_request['url'],
+                latest_response.status_code,
+                latest_response.text
+            ).splitlines():
+            logger.critical(line)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
