@@ -81,6 +81,7 @@
     },
     "payload": {
       "type": [
+        "null",
         "object",
         "string"
       ],
