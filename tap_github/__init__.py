@@ -2646,7 +2646,7 @@ def do_sync(config, state, catalog):
     graphql_url = f'{api_url}/graphql'
     if 'graphql_url' in config:
         graphql_url = config['graphql_url']
-        logger.info('Using Github GraphQL URL')
+        logger.info('Using Github GraphQL URL {}'.format(graphql_url))
 
     logger.info('Process globals = {}'.format(str(process_globals)))
 
