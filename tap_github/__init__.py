@@ -34,6 +34,7 @@ from singer import metadata
 
 # Will be set by config as global
 api_url = ''
+graphql_url = ''
 
 session = requests.Session()
 logger = singer.get_logger()
@@ -1057,6 +1058,8 @@ def get_all_project_columns(project_id, schemas, repo_path, state, mdata, start_
 #
 # See `get_all_projects_v2` for example usage.
 def authed_graphql_all_pages(source, query_template, query_values, path, page_size = 100, max_pages = 500):
+    global graphql_url
+
     totalRetrievedCount = 0
     query_values = {
         **query_values,
@@ -1071,7 +1074,7 @@ def authed_graphql_all_pages(source, query_template, query_values, path, page_si
 
         # make GraphQL query
         post_body = json.dumps({ 'query': query })
-        data = authed_get(source, f'{api_url}graphql', {}, 'post', post_body)
+        data = authed_get(source, f'{graphql_url}', {}, 'post', post_body)
         data = data.json()
 
         errors = data.get('errors')
@@ -2622,6 +2625,7 @@ def do_sync(config, state, catalog):
     global process_globals
     global code_coverage_artifact_name
     global api_url
+    global graphql_url
 
     start_date = config['start_date'] if 'start_date' in config else None
 
@@ -2638,6 +2642,11 @@ def do_sync(config, state, catalog):
         if api_url[-1] != '/':
             api_url += '/'
         logger.info('Using GitHub API URL {}'.format(api_url))
+
+    graphql_url = f'{api_url}/graphql'
+    if 'graphql_url' in config:
+        graphql_url = config['graphql_url']
+        logger.info('Using Github GraphQL URL')
 
     logger.info('Process globals = {}'.format(str(process_globals)))
 
