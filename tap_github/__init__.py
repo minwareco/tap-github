@@ -1434,42 +1434,45 @@ def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
     extraction_time = singer.utils.now()
 
     with metrics.record_counter(stream_name) as counter:
-        url = '{}repos/{}/actions/runs?per_page=100'.format(api_url, repo_path)
-        for response in authed_get_all_pages(stream_name,url):
-            response_json = response.json()
-            workflow_runs = response_json['workflow_runs']
+        try:
+            url = '{}repos/{}/actions/runs?per_page=100'.format(api_url, repo_path)
+            for response in authed_get_all_pages(stream_name,url):
+                response_json = response.json()
+                workflow_runs = response_json['workflow_runs']
 
-            for workflow_run in workflow_runs:
-                workflow_run_record = {
-                    **workflow_run,
-                    '_sdc_repository': repo_path
-                }
+                for workflow_run in workflow_runs:
+                    workflow_run_record = {
+                        **workflow_run,
+                        '_sdc_repository': repo_path
+                    }
 
-                updated_at_date = singer.utils.strptime_to_utc(workflow_run['updated_at'])
-                if updated_at_date < bookmark_time:
-                    continue
+                    updated_at_date = singer.utils.strptime_to_utc(workflow_run['updated_at'])
+                    if updated_at_date < bookmark_time:
+                        continue
 
-                # transform and write the record
-                with singer.Transformer(pre_hook=utf8_hook) as transformer:
-                    rec = transformer.transform(
-                        workflow_run_record,
-                        schemas,
-                        metadata=metadata.to_map(mdata)
-                    )
-                singer.write_record(stream_name, rec, time_extracted=extraction_time)
-                counter.increment()
+                    # transform and write the record
+                    with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                        rec = transformer.transform(
+                            workflow_run_record,
+                            schemas,
+                            metadata=metadata.to_map(mdata)
+                        )
+                    singer.write_record(stream_name, rec, time_extracted=extraction_time)
+                    counter.increment()
 
-                if schemas.get('workflow_run_jobs'):
-                    state = get_all_workflow_run_jobs(
-                        schemas,
-                        repo_path,
-                        workflow_run['id'],
-                        workflow_run['run_attempt'],
-                        state,
-                        mdata,
-                        start_date
-                    )
-
+                    if schemas.get('workflow_run_jobs'):
+                        state = get_all_workflow_run_jobs(
+                            schemas,
+                            repo_path,
+                            workflow_run['id'],
+                            workflow_run['run_attempt'],
+                            state,
+                            mdata,
+                            start_date
+                        )
+        except AuthException:
+            logger.warn('{} data could not be ingested because authorization failed on the API endpoint'
+                    .format(stream_name, repo_path))
     # set the bookmark to the earliest incomplete workflow run or the latest created workflow run
     singer.write_bookmark(state, repo_path, stream_name, {'since': singer.utils.strftime(extraction_time)})
 
