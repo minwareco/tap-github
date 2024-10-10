@@ -2397,8 +2397,8 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
 
         # Run in batches
         i = 0
-        BATCH_SIZE = 16
-        PRINT_INTERVAL = 16
+        BATCH_SIZE = 2
+        PRINT_INTERVAL = 8
         hasLocal = True # Only local now
         totalCommits = len(commitQ)
         finishedCount = 0
@@ -2407,6 +2407,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
             # Slice off the queue to avoid memory leaks
             curQ = commitQ[0:BATCH_SIZE]
             commitQ = commitQ[BATCH_SIZE:]
+            logger.info('getChangedFilesForCommits -- [{}]'.format([c['sha'] for c in curQ]))
             changedFileList = asyncio.run(getChangedfilesForCommits(curQ, repo_path, hasLocal,
                 gitLocal))
             for commitfiles in changedFileList:
