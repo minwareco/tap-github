@@ -1610,6 +1610,9 @@ def get_all_deployments(schemas, repo_path, state, mdata, start_date):
                             mdata,
                             start_date
                         )
+
+            singer.write_bookmark(state, repo_path, stream_name, {'since': singer.utils.strftime(extraction_time)})
+
         # if we do NOT have permissions to access deployments
         # do NOT fail tap, just return
         except AuthException:
@@ -2647,7 +2650,7 @@ def do_sync(config, state, catalog):
             api_url += '/'
         logger.info('Using GitHub API URL {}'.format(api_url))
 
-    graphql_url = f'{api_url}/graphql'
+    graphql_url = f'{api_url}graphql'
     if 'graphql_url' in config:
         graphql_url = config['graphql_url']
         logger.info('Using Github GraphQL URL {}'.format(graphql_url))
