@@ -116,6 +116,9 @@ class GoneError(GithubException):
 class RateLimitExceeded(GithubException):
     pass
 
+class UnavailableForLegalReasonsError(GithubException):
+    pass
+
 ERROR_CODE_EXCEPTION_MAPPING = {
     301: {
         "raise_exception": MovedPermanentlyError,
@@ -152,6 +155,10 @@ ERROR_CODE_EXCEPTION_MAPPING = {
     422: {
         "raise_exception": UnprocessableError,
         "message": "The request was not able to process right now."
+    },
+    451: {
+        "raise_exception": UnavailableForLegalReasonsError,
+        "message": "The requested resource is unavailable for legal reasons"
     },
     500: {
         "raise_exception": InternalServerError,
@@ -2535,10 +2542,13 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
             '{}repos/{}'.format(api_url, repo_path)
         ).json()
     except GithubException as ex:
-        # if Github has blocked access to a repo because of their tos, we can ignore it and proceed
-        if ex.server_response and ex.server_response['message'] == 'Repository access blocked' \
-            and ex.server_response['block'] and ex.server_response['block']['reason'] == 'tos':
-            logger.warn('Github blocked access to {} because of a terms of service violation, skipping'.format(repo_path))
+        # if Github has blocked access to a repo because of their tos or dmca, we can ignore it and proceed
+        if isinstance(ex, UnavailableForLegalReasonsError):
+            logger.warn('Github repository {} not available for legal reasons'.format(repo_path))
+            return
+        elif ex.server_response and ex.server_response['message'] == 'Repository access blocked' \
+            and ex.server_response['block'] and ex.server_response['block']['reason'] in ['tos', 'dmca']:
+            logger.warn('Github blocked access to {} because of {}, skipping'.format(repo_path, ex.server_response['block']['reason']))
             return
         else:
             raise ex
