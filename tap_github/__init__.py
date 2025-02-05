@@ -79,7 +79,7 @@ KEY_PROPERTIES = {
 
 class GithubException(Exception):
     server_response = None
-    def __init__(self, message, server_response):
+    def __init__(self, message, server_response=None):
         super().__init__(message)
         self.server_response = server_response
 
@@ -292,6 +292,9 @@ def rate_throttling(response):
 # endpoints will return 500 when they really should return 404 and we need to skip them.
 MAX_RETRY_TIME = 120
 RETRY_WAIT = 15  # Wait between requests when the server is struggling
+
+latest_response = None
+latest_request = None
 def authed_get(source, url, headers={}, overrideMethod='get', data=None):
     global latest_response
     global latest_request
@@ -2363,8 +2366,8 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
             while True:
                 # Get commits one page at a time
                 if hasLocal:
-                    commits = gitLocal.getCommitsFromHead(repo_path, headSha, limit = LOG_PAGE_SIZE,
-                        offset = offset)
+                    commits = gitLocal.getCommitsFromHeadPyGit(repo_path, headSha,
+                        limit = LOG_PAGE_SIZE, offset = offset, skipAtCommits=fetchedCommits)
                 else:
                     response = list(authed_get_yield('commits', cururl))[0]
                     commits = response.json()
@@ -2806,12 +2809,13 @@ def main():
         global latest_request
         for line in traceback.format_exc().splitlines():
             logger.critical(line)
-        for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
-                latest_request['url'],
-                latest_response.status_code,
-                latest_response.text
-            ).splitlines():
-            logger.critical(line)
+        if latest_response and latest_request:
+            for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
+                    latest_request['url'],
+                    latest_response.status_code,
+                    latest_response.text
+                ).splitlines():
+                logger.critical(line)
         sys.exit(1)
 
 if __name__ == "__main__":
