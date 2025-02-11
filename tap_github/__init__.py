@@ -2310,7 +2310,6 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
     # this could lead to commits getting marked as fetched when their parents are never fetched. So,
     # copy the dict.
     fetchedCommits = fetchedCommits.copy()
-    newlyFetchedCommits = {}
 
     # Get all of the branch heads to use for querying commits
     #heads = get_all_heads_for_commits(repo_path)
@@ -2364,6 +2363,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
             cururl = '{}repos/{}/commits?per_page=100&sha={}&since={}' \
                 .format(api_url, repo_path, headSha, bookmark)
             offset = 0
+            newlyFetchedCommits = {}
             while True:
                 # Get commits one page at a time
                 if hasLocal:
@@ -2375,7 +2375,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
                 extraction_time = singer.utils.now()
                 for commit in commits:
                     # Skip commits we've already imported
-                    if commit['sha'] in fetchedCommits:
+                    if commit['sha'] in fetchedCommits or commit['sha'] in newlyFetchedCommits:
                         continue
 
                     commitQ.append(commit)
@@ -2405,7 +2405,6 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
 
             # After successfully processing all commits for this head, add them to fetchedCommits
             fetchedCommits.update(newlyFetchedCommits)
-            newlyFetchedCommits = {}
 
         # Now run through all the commits in parallel
         gc.collect()
