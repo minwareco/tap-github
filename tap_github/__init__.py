@@ -728,14 +728,22 @@ def get_all_team_memberships(team_slug, schemas, repo_path, state, mdata):
 
     for response in authed_get_all_pages(
             'team_members',
-            '{}orgs/{}/teams/{}/memberships/{}'.format(api_url, org, team_slug, username)
+            '{}orgs/{}/teams/{}/members?sort=created_at&direction=desc'.format(api_url, org, team_slug)
         ):
-        team_membership = res.json()
-        team_membership['_sdc_repository'] = repo_path
-        with singer.Transformer(pre_hook=utf8_hook) as transformer:
-            rec = transformer.transform(team_membership, schemas, metadata=metadata.to_map(mdata))
-        counter.increment()
-        yield rec
+        team_members = response.json()
+        with metrics.record_counter('team_memberships') as counter:
+            for r in team_members:
+                username = r['login']
+                for res in authed_get_all_pages(
+                        'memberships',
+                        '{}orgs/{}/teams/{}/memberships/{}'.format(api_url, org, team_slug, username)
+                ):
+                    team_membership = res.json()
+                    team_membership['_sdc_repository'] = repo_path
+                    with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                        rec = transformer.transform(team_membership, schemas, metadata=metadata.to_map(mdata))
+                    counter.increment()
+                    yield rec
     return state
 
 
@@ -2291,6 +2299,13 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
     if not fetchedCommits:
         fetchedCommits = {}
 
+    # We don't want to use a time-based bookmark becuase it could skip commits
+    # that are pushed after they are committed. So, set the bookmark to the beginning
+    # of time until we have everything, using only the fetchedCommits bookmark.
+    bookmark = '1970-01-01'
+
+    logger.info('Found {} fetched commits in state.'.format(len(fetchedCommits)))
+
     # We don't want newly fetched commits to update the state if we fail partway through, because
     # this could lead to commits getting marked as fetched when their parents are never fetched. So,
     # copy the dict.
@@ -2298,6 +2313,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
     newlyFetchedCommits = {}
 
     # Get all of the branch heads to use for querying commits
+    #heads = get_all_heads_for_commits(repo_path)
     heads = gitLocal.getAllHeads(repo_path)
 
     # Set this here for updating the state when we don't run any queries
@@ -2346,7 +2362,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
                 continue
 
             cururl = '{}repos/{}/commits?per_page=100&sha={}&since={}' \
-                .format(api_url, repo_path, headSha, '1970-01-01')
+                .format(api_url, repo_path, headSha, bookmark)
             offset = 0
             while True:
                 # Get commits one page at a time
