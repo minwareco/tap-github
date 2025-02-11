@@ -2735,6 +2735,13 @@ def do_sync(config, state, catalog):
     for repo in allRepos:
         logger.info("Starting sync of repository: %s", repo)
 
+        if 'skip_unavailable' in config and bool(config['skip_unavailable']):
+            try:
+                get_repo_metadata(repo)
+            except:
+                logger.warning(f'{repo} is not available, skipping')
+                continue
+
         org = repo.split('/')[0]
         access_token = set_auth_headers(config, org)
 
