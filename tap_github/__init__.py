@@ -2806,6 +2806,8 @@ def do_sync(config, state, catalog):
 
 def main():
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
+    if args.config and 'access_token' in args.config:
+        logger.addToken(args.config['access_token'])
 
     try:
         if args.discover:
@@ -2819,12 +2821,12 @@ def main():
         for line in traceback.format_exc().splitlines():
             logger.critical(line)
         if latest_response and latest_request:
-            for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
-                    latest_request['url'],
-                    latest_response.status_code,
-                    latest_response.text
-                ).splitlines():
-                logger.critical(line)
+            logger.critical('Latest Request URL: {}'.format(latest_request['url']))
+            logger.critical('Response Code: {}'.format(latest_response.status_code))
+            logger.critical('Response Data:')
+            # this is different than the abovce so that logger can get this as valid json and remove data from sensitive fields
+            logger.critical(latest_response.text)
+
         sys.exit(1)
 
 if __name__ == "__main__":
