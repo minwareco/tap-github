@@ -29,6 +29,7 @@ if DEBUG:
     breakpoint()
 
 from gitlocal import GitLocal
+from gitlocal.logging import SecureLogger
 
 from singer import metadata
 
@@ -37,7 +38,7 @@ api_url = ''
 graphql_url = ''
 
 session = requests.Session()
-logger = singer.get_logger()
+logger = SecureLogger(singer.get_logger())
 
 REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 
@@ -561,6 +562,8 @@ def refresh_app_token(pem=None, appid=None, org=None):
     # cache the token to avoid possibility of requesting another one until it expires
     cached_app_tokens[org] = installation_token
 
+    logger.addToken(installation_token)
+
     return installation_token
 
 accountTypeCache = {}
@@ -615,6 +618,8 @@ def set_auth_headers(config, org = None):
         access_token = refresh_app_token(pem, appid, org)
     else:
         session.headers.update({'authorization': 'token ' + access_token})
+
+    logger.addToken(access_token)
 
     return access_token
 
@@ -2403,8 +2408,8 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
                     raise GithubException('Some commit parents never found: ' + \
                         ','.join(missingParents.keys()))
 
-            # After successfully processing all commits for this head, add them to fetchedCommits
-            fetchedCommits.update(newlyFetchedCommits)
+                # After successfully processing all commits for this head, add them to fetchedCommits
+                fetchedCommits.update(newlyFetchedCommits)
 
         # Now run through all the commits in parallel
         gc.collect()
@@ -2799,25 +2804,6 @@ def do_sync(config, state, catalog):
         # right now and running out of memory as a result.
         singer.write_state(state)
 
-def redact_sensitive_data(response_text):
-    """Redact sensitive information from response text.
-    
-    Args:
-        response_text (str): The raw response text that may contain sensitive data
-        
-    Returns:
-        str: Response text with sensitive data redacted
-    """
-    try:
-        # Try to parse as JSON and mask sensitive fields
-        response_data = json.loads(response_text)
-        if any(key.lower() == 'token' for key in response_data):
-            response_data['token'] = '<TOKEN>'
-        return json.dumps(response_data)
-    except:
-        # If not JSON or parsing fails, return original text
-        return response_text
-
 def main():
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
 
@@ -2833,12 +2819,10 @@ def main():
         for line in traceback.format_exc().splitlines():
             logger.critical(line)
         if latest_response and latest_request:
-            response_text = redact_sensitive_data(latest_response.text)
-
             for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
                     latest_request['url'],
                     latest_response.status_code,
-                    response_text
+                    latest_response.text
                 ).splitlines():
                 logger.critical(line)
         sys.exit(1)
