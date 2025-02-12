@@ -2408,8 +2408,8 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
                     raise GithubException('Some commit parents never found: ' + \
                         ','.join(missingParents.keys()))
 
-                # After successfully processing all commits for this head, add them to fetchedCommits
-                fetchedCommits.update(newlyFetchedCommits)
+            # After successfully processing all commits for this head, add them to fetchedCommits
+            fetchedCommits.update(newlyFetchedCommits)
 
         # Now run through all the commits in parallel
         gc.collect()
