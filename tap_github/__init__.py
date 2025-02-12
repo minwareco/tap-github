@@ -2748,7 +2748,7 @@ def do_sync(config, state, catalog):
             'workingDir': '/tmp'
         }, 'https://x-access-token:{}@github.com/{}.git',
             config['hmac_token'] if 'hmac_token' in config else None,
-            logger=logger.getChild('GitLocal'))
+            logger=logger)
 
         for stream in catalog['streams']:
             stream_id = stream['tap_stream_id']
