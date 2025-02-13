@@ -3,6 +3,8 @@ import os
 
 from setuptools import setup, find_packages
 
+UTILS_VERSION = "a9898d6bef1d05bef2e45713a41e9889113ad6b4"
+
 setup(name='tap-github',
       version='1.10.0',
       description='Singer.io tap for extracting data from the GitHub API',
@@ -17,7 +19,10 @@ setup(name='tap-github',
           'debugpy==1.5.1',
           'PyJWT==2.8.0',
           'cryptography==42.0.1',
-          'gitlocal@git+https://{}@github.com/minwareco/gitlocal.git'.format(os.environ.get("GITHUB_TOKEN", ""))
+          'minware_singer_utils@git+https://{}github.com/minwareco/minware-singer-utils.git@{}'.format(
+              "{}@".format(os.environ.get("GITHUB_TOKEN")) if os.environ.get("GITHUB_TOKEN") else "",
+              UTILS_VERSION
+          )
       ],
       extras_require={
           'dev': [
