@@ -28,7 +28,7 @@ if DEBUG:
     debugpy.wait_for_client()
     breakpoint()
 
-from gitlocal import GitLocal
+from minware_singer_utils import GitLocal, SecureLogger
 
 from singer import metadata
 
@@ -37,7 +37,7 @@ api_url = ''
 graphql_url = ''
 
 session = requests.Session()
-logger = singer.get_logger()
+logger = SecureLogger(singer.get_logger())
 
 REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 
@@ -561,6 +561,8 @@ def refresh_app_token(pem=None, appid=None, org=None):
     # cache the token to avoid possibility of requesting another one until it expires
     cached_app_tokens[org] = installation_token
 
+    logger.addToken(installation_token)
+
     return installation_token
 
 accountTypeCache = {}
@@ -615,6 +617,8 @@ def set_auth_headers(config, org = None):
         access_token = refresh_app_token(pem, appid, org)
     else:
         session.headers.update({'authorization': 'token ' + access_token})
+
+    logger.addToken(access_token)
 
     return access_token
 
@@ -2750,7 +2754,7 @@ def do_sync(config, state, catalog):
             'workingDir': '/tmp'
         }, 'https://x-access-token:{}@github.com/{}.git',
             config['hmac_token'] if 'hmac_token' in config else None,
-            logger=logger.getChild('GitLocal'))
+            logger=logger)
 
         for stream in catalog['streams']:
             stream_id = stream['tap_stream_id']
@@ -2806,27 +2810,10 @@ def do_sync(config, state, catalog):
         # right now and running out of memory as a result.
         singer.write_state(state)
 
-def redact_sensitive_data(response_text):
-    """Redact sensitive information from response text.
-    
-    Args:
-        response_text (str): The raw response text that may contain sensitive data
-        
-    Returns:
-        str: Response text with sensitive data redacted
-    """
-    try:
-        # Try to parse as JSON and mask sensitive fields
-        response_data = json.loads(response_text)
-        if any(key.lower() == 'token' for key in response_data):
-            response_data['token'] = '<TOKEN>'
-        return json.dumps(response_data)
-    except:
-        # If not JSON or parsing fails, return original text
-        return response_text
-
 def main():
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
+    if args.config and 'access_token' in args.config:
+        logger.addToken(args.config['access_token'])
 
     try:
         if args.discover:
@@ -2840,14 +2827,12 @@ def main():
         for line in traceback.format_exc().splitlines():
             logger.critical(line)
         if latest_response and latest_request:
-            response_text = redact_sensitive_data(latest_response.text)
+            logger.critical('Latest Request URL: {}'.format(latest_request['url']))
+            logger.critical('Response Code: {}'.format(latest_response.status_code))
+            logger.critical('Response Data:')
+            # this is different than the abovce so that logger can get this as valid json and remove data from sensitive fields
+            logger.critical(latest_response.text)
 
-            for line in 'Latest Request URL: {}\nResponse Code: {}\nResponse Data: {}'.format(
-                    latest_request['url'],
-                    latest_response.status_code,
-                    response_text
-                ).splitlines():
-                logger.critical(line)
         sys.exit(1)
 
 if __name__ == "__main__":
