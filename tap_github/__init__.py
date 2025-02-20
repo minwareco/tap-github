@@ -1136,7 +1136,7 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
         path = [acctObjectName, 'projectsV2']
         query_template = '''query {{
             {acctObjectName}(login:"{org}") {{
-                projectsV2(first: {page_size}, after: "{cursor}") {{
+                projectsV2(first: 10, after: "{cursor}") {{
                     totalCount
                     pageInfo {{
                         endCursor
