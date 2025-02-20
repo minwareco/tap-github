@@ -1094,7 +1094,8 @@ def authed_graphql_all_pages(source, query_template, query_values, path, page_si
         errors = data.get('errors')
         # check for errors
         if errors is not None:
-            if any(err['type'] in ['FORBIDDEN', 'INSUFFICIENT_SCOPES'] for err in errors):
+            logger.info('GraphQL call failed with query: %s', query)            
+            if any(err.get('type') in ['FORBIDDEN', 'INSUFFICIENT_SCOPES'] for err in errors):
                 raise AuthException(errors[0]['message'], data)
             logger.error('GraphQL query failed on page {}: {}'.format(i + 1, errors))
             raise Exception('GraphQL query failed', errors)
