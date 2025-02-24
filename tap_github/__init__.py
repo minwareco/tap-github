@@ -578,7 +578,7 @@ def getReposForOrg(user_or_org):
     if getAccountType(user_or_org) == 'USER':
         repos_url = f'{api_url}search/repositories?q=user:{user_or_org}&per_page=100'
     else:
-        repos_url += f'{api_url}orgs/{user_or_org}/repos?per_page=100'
+        repos_url = f'{api_url}orgs/{user_or_org}/repos?per_page=100'
 
     orgRepos = []
     for response in authed_get_all_pages(
