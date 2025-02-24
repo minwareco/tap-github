@@ -574,18 +574,26 @@ def getAccountType(org):
 
     return accountTypeCache[org]
 
-def getReposForOrg(org):
-    acctPathComponent = 'users' if getAccountType(org) == 'USER' else 'orgs'
+def getReposForOrg(user_or_org):
+    if getAccountType(user_or_org) == 'USER':
+        repos_url = f'{api_url}search/repositories?q=user:{user_or_org}&per_page=100'
+    else:
+        repos_url += f'{api_url}orgs/{user_or_org}/repos?per_page=100'
+
     orgRepos = []
     for response in authed_get_all_pages(
         'repositories',
-        f'{api_url}{acctPathComponent}/{org}/repos?per_page=100'
+        repos_url,
     ):
-        repos = response.json()
+        json_response = response.json()
+        repos = json_response
+        if repos_url.startswith(f'{api_url}search'):
+            repos = repos.get('items', [])
+ 
         for repo in repos:
             # Preserve the case used for the org name originally
             namesplit = repo['full_name'].split('/')
-            orgRepos.append(org + '/' + namesplit[1])
+            orgRepos.append(user_or_org + '/' + namesplit[1])
             repo_cache[repo['full_name']] = repo
 
     return orgRepos
