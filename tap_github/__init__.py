@@ -581,20 +581,27 @@ def getReposForOrg(user_or_org):
         repos_url = f'{api_url}orgs/{user_or_org}/repos?per_page=100'
 
     orgRepos = []
-    for response in authed_get_all_pages(
-        'repositories',
-        repos_url,
-    ):
-        json_response = response.json()
-        repos = json_response
-        if repos_url.startswith(f'{api_url}search'):
-            repos = repos.get('items', [])
- 
-        for repo in repos:
-            # Preserve the case used for the org name originally
-            namesplit = repo['full_name'].split('/')
-            orgRepos.append(user_or_org + '/' + namesplit[1])
-            repo_cache[repo['full_name']] = repo
+    try:
+        for response in authed_get_all_pages(
+            'repositories',
+            repos_url,
+        ):
+            json_response = response.json()
+            repos = json_response
+            if repos_url.startswith(f'{api_url}search'):
+                repos = repos.get('items', [])
+     
+            for repo in repos:
+                # Preserve the case used for the org name originally
+                namesplit = repo['full_name'].split('/')
+                orgRepos.append(user_or_org + '/' + namesplit[1])
+                repo_cache[repo['full_name']] = repo
+    except UnprocessableError as e:
+        # Log the error but don't raise an exception
+        # we end up here if there are no repos for the org
+        logger.warning(f"Unable to get repositories for {user_or_org}: {str(e)}")
+        # Return empty list instead of raising exception
+        return []
 
     return orgRepos
 
