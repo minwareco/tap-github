@@ -306,6 +306,13 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
         just_refreshed_token = False
         network_retry_count = 0
         network_max_retries = 5
+        
+        # Check if we're using a PAT or GitHub App
+        using_pat = False
+        auth_header = session.headers.get('authorization', '')
+        if auth_header.startswith('token '):
+            using_pat = True
+        
         while True:
             try:
                 latest_request = { 'method': overrideMethod, 'url': url, 'data': data}
@@ -315,8 +322,13 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
                 # get a new installation token for the github app and try again in case there is a
                 # token expiration
                 if not just_refreshed_token and resp.status_code == 401:
-                    refresh_app_token()
-                    just_refreshed_token = True
+                    if using_pat:
+                        # If using a PAT and getting a 401, fail immediately rather than trying to refresh
+                        raise BadCredentialsException('Invalid GitHub Personal Access Token (PAT). The token was rejected by GitHub.', resp)
+                    else:
+                        # Only try to refresh the token for GitHub App authentication
+                        refresh_app_token()
+                        just_refreshed_token = True
                 else:
                     # Reset this so that we will try to refresh the access token again later if
                     # necessary.
@@ -2833,6 +2845,9 @@ def do_sync(config, state, catalog):
         singer.write_state(state)
 
 def main():
+    global latest_response
+    global latest_request
+    
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
     if args.config and 'access_token' in args.config:
         logger.addToken(args.config['access_token'])
@@ -2843,9 +2858,20 @@ def main():
         else:
             catalog = args.properties if args.properties else get_catalog()
             do_sync(args.config, args.state, catalog)
+    except BadCredentialsException as exc:
+        logger.critical("Authentication Error: Invalid GitHub credentials.")
+        logger.critical("If you are using a Personal Access Token (PAT), please verify it is valid and has the required permissions.")
+        logger.critical("Error details: %s", str(exc))
+        if latest_response and latest_request:
+            logger.critical('Latest Request URL: {}'.format(latest_request['url']))
+            logger.critical('Response Code: {}'.format(latest_response.status_code))
+        sys.exit(1)
+    except AuthException as exc:
+        logger.critical("GitHub App Authentication Error: %s", str(exc))
+        logger.critical("If you are trying to use GitHub App authentication, please verify your app_id and app_pem are correctly configured.")
+        logger.critical("If you intended to use a Personal Access Token (PAT), make sure it is provided in the config as 'access_token'.")
+        sys.exit(1)
     except Exception as exc:
-        global latest_response
-        global latest_request
         for line in traceback.format_exc().splitlines():
             logger.critical(line)
         if latest_response and latest_request:
