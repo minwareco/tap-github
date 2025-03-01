@@ -39,6 +39,8 @@ graphql_url = ''
 session = requests.Session()
 logger = SecureLogger(singer.get_logger())
 
+using_pat = False
+
 REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 
 KEY_PROPERTIES = {
@@ -306,12 +308,6 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
         just_refreshed_token = False
         network_retry_count = 0
         network_max_retries = 5
-        
-        # Check if we're using a PAT or GitHub App
-        using_pat = False
-        auth_header = session.headers.get('authorization', '')
-        if auth_header.startswith('token '):
-            using_pat = True
         
         while True:
             try:
@@ -2847,10 +2843,12 @@ def do_sync(config, state, catalog):
 def main():
     global latest_response
     global latest_request
+    global using_pat
     
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
     if args.config and 'access_token' in args.config:
         logger.addToken(args.config['access_token'])
+        using_pat = True
 
     try:
         if args.discover:
