@@ -626,11 +626,13 @@ def getOrgs():
     return orgs
 
 def set_auth_headers(config, org = None):
+    global using_pat
     access_token = config['access_token']
 
     # If we don't have a personal access token, use the github app to get an installation access
     # token
     if not access_token or len(access_token) == 0:
+        using_pat = False
         if not org:
             raise Exception('Org value must be provided when authorizing with an app installation key')
         elif org in cached_app_tokens:
@@ -639,6 +641,7 @@ def set_auth_headers(config, org = None):
         appid = config['app_id']
         access_token = refresh_app_token(pem, appid, org)
     else:
+        using_pat = True
         session.headers.update({'authorization': 'token ' + access_token})
 
     logger.addToken(access_token)
@@ -2840,16 +2843,16 @@ def do_sync(config, state, catalog):
         # right now and running out of memory as a result.
         singer.write_state(state)
 
+
+
 def main():
     global latest_response
     global latest_request
-    global using_pat
     
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
     if args.config and 'access_token' in args.config:
         logger.addToken(args.config['access_token'])
-        using_pat = True
-
+        
     try:
         if args.discover:
             do_discover(args.config)
