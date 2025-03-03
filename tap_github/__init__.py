@@ -1123,12 +1123,6 @@ def authed_graphql_all_pages(source, query_template, query_values, path, page_si
             logger.info('GraphQL call failed with query: %s', query)            
             if any(err.get('type') in ['FORBIDDEN', 'INSUFFICIENT_SCOPES'] for err in errors):
                 raise AuthException(errors[0]['message'], data)
-            
-            # Skip the specific error message but log it and return empty list
-            if any("Something went wrong while executing your query" in err.get('message', '') for err in errors):
-                logger.warning('Skipping GraphQL error on page {}: {}'.format(i + 1, errors))
-                return []
-                
             logger.error('GraphQL query failed on page {}: {}'.format(i + 1, errors))
             raise Exception('GraphQL query failed', errors)
 
