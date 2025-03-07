@@ -2574,22 +2574,31 @@ def get_all_stargazers(schema, repo_path, state, mdata, _start_date):
     return state
 
 def get_repository_data(schema, repo_path, state, mdata, _start_date):
-    try:
-        repo_metadata = authed_get(
-            'repositories',
-            '{}repos/{}'.format(api_url, repo_path)
-        ).json()
-    except GithubException as ex:
-        # if Github has blocked access to a repo because of their tos or dmca, we can ignore it and proceed
-        if isinstance(ex, UnavailableForLegalReasonsError):
-            logger.warn('Github repository {} not available for legal reasons'.format(repo_path))
-            return
-        elif ex.server_response and ex.server_response['message'] == 'Repository access blocked' \
-            and ex.server_response['block'] and ex.server_response['block']['reason'] in ['tos', 'dmca']:
-            logger.warn('Github blocked access to {} because of {}, skipping'.format(repo_path, ex.server_response['block']['reason']))
-            return
-        else:
-            raise ex
+    repo_metadata = repo_cache.get(repo_path, None)
+
+    if not repo_metadata or repo_metadata.get('fork', False) == True:
+        if not repo_metadata:
+            logger.info('Repo cache not hydrated, must fetch details')
+        elif repo_metadata.get('fork', False):
+            logger.info('Repo is fork, must fetch details')
+
+        try:
+            repo_metadata = authed_get(
+                'repositories',
+                '{}repos/{}'.format(api_url, repo_path)
+            ).json()
+            repo_cache[repo_path] = repo_metadata
+        except GithubException as ex:
+            # if Github has blocked access to a repo because of their tos or dmca, we can ignore it and proceed
+            if isinstance(ex, UnavailableForLegalReasonsError):
+                logger.warn('Github repository {} not available for legal reasons'.format(repo_path))
+                return
+            elif ex.server_response and ex.server_response['message'] == 'Repository access blocked' \
+                and ex.server_response['block'] and ex.server_response['block']['reason'] in ['tos', 'dmca']:
+                logger.warn('Github blocked access to {} because of {}, skipping'.format(repo_path, ex.server_response['block']['reason']))
+                return
+            else:
+                raise ex
 
     fork_org_name = None
     fork_repo_name = None
