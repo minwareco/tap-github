@@ -2587,7 +2587,7 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
                 'repositories',
                 '{}repos/{}'.format(api_url, repo_path)
             ).json()
-            repo_cache[repo_metadata['full_name']] = repo_metadata
+            repo_cache[repo_path] = repo_metadata
         except GithubException as ex:
             # if Github has blocked access to a repo because of their tos or dmca, we can ignore it and proceed
             if isinstance(ex, UnavailableForLegalReasonsError):
