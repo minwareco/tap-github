@@ -3,7 +3,7 @@ import os
 
 from setuptools import setup, find_packages
 
-UTILS_VERSION = "22f493552c4eb46b2b5a6d98d7acacd9fb7edf68"
+UTILS_VERSION = "c3ffa1f96a19cdc383bdb6adf0c578db958962f0"
 
 setup(name='tap-github',
       version='1.10.0',
