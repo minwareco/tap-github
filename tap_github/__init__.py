@@ -483,7 +483,7 @@ def generate_jwt(pem, appid):
 
     return encoded_jwt
 
-
+# TODO: REMOVE AFTER INSTALLATION_ID ROLLOUT
 def fetch_installations():
     '''
     Before this function is called, an authorization header with a JWT bearer token should be set in
@@ -526,13 +526,15 @@ cached_app_tokens = {}
 last_token_pem=False
 last_token_appid=False
 last_token_org=False
-def refresh_app_token(pem=None, appid=None, org=None):
+last_token_installation_id=False
+def refresh_app_token(pem=None, appid=None, org=None, installation_id=None):
     global cached_installations
 
     # Cache the parameters so this can be called to refresh the token without any new parameters
     global last_token_pem
     global last_token_appid
     global last_token_org
+    global last_token_installation_id
     if pem == None:
         pem = last_token_pem
     else:
@@ -545,20 +547,29 @@ def refresh_app_token(pem=None, appid=None, org=None):
         org = last_token_org
     else:
         last_token_org = org
+    
+    if installation_id == None:
+        installation_id = last_token_installation_id
+    else:
+        last_token_installation_id = installation_id
 
     # Set HTTP authorization to JWT
     jwt = generate_jwt(pem, appid)
     session.headers.update({'authorization': 'Bearer ' + jwt})
+    logger.info(f'USING INSTALLATION ID {installation_id}')
 
-    # Get all installations if they haven't been fetched yet
-    if not cached_installations:
-        cached_installations = fetch_installations()
+    # TODO: REMOVE AFTER INSTALLATION_ID ROLLOUT
+    if not installation_id:
+        # Get all installations if they haven't been fetched yet
+        if not cached_installations:
+            cached_installations = fetch_installations()
 
-    # And make sure we have an installation for this org
-    if not cached_installations.get(org.lower()):
-        raise NotFoundException('No app installation found for org ' + org)
+        # And make sure we have an installation for this org
+        if not cached_installations.get(org.lower()):
+            raise NotFoundException('No app installation found for org ' + org)
 
-    installation_id = cached_installations[org.lower()]
+        installation_id = cached_installations[org.lower()]
+
     installation_token = get_installation_token(installation_id)
 
     # Now we have a token we can just use the same way that we use a personal access token
@@ -633,13 +644,14 @@ def set_auth_headers(config, org = None):
     # token
     if not access_token or len(access_token) == 0:
         using_pat = False
-        if not org:
-            raise Exception('Org value must be provided when authorizing with an app installation key')
+        if not org and not installation_id:
+            raise Exception('org or installation_id must be provided when authorizing with an app installation key')
         elif org in cached_app_tokens:
             return cached_app_tokens[org]
         pem = config['app_pem']
         appid = config['app_id']
-        access_token = refresh_app_token(pem, appid, org)
+        installation_id = config.get('installation_id', None)
+        access_token = refresh_app_token(pem, appid, org, installation_id)
     else:
         using_pat = True
         session.headers.update({'authorization': 'token ' + access_token})
