@@ -2586,9 +2586,11 @@ def get_all_stargazers(schema, repo_path, state, mdata, _start_date):
     return state
 
 def get_repository_data(schema, repo_path, state, mdata, _start_date):
+    global fetch_forks
+
     repo_metadata = repo_cache.get(repo_path, None)
 
-    if not repo_metadata or repo_metadata.get('fork', False) == True:
+    if not repo_metadata or (repo_metadata.get('fork', False) == True and fetch_forks):
         if not repo_metadata:
             logger.info('Repo cache not hydrated, must fetch details')
         elif repo_metadata.get('fork', False):
@@ -2614,7 +2616,7 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
 
     fork_org_name = None
     fork_repo_name = None
-    if repo_metadata['fork']:
+    if repo_metadata['fork'] and repo_metadata.get('parent', {}).get('full_name', False):
         fork_split = repo_metadata['parent']['full_name'].split('/')
         fork_org_name = fork_split[0]
         fork_repo_name = fork_split[1]
@@ -2630,6 +2632,7 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
         repo['fork_org_name'] = fork_org_name
         repo['fork_repo_name'] = fork_repo_name
         repo['description'] = repo_metadata['description']
+        repo['is_fork'] = repo_metadata.get('fork', None)
         with singer.Transformer() as transformer:
             rec = transformer.transform(repo, schema, metadata=metadata.to_map(mdata))
         singer.write_record('repositories', rec, time_extracted=extraction_time)
@@ -2697,12 +2700,21 @@ SUB_STREAMS = {
     'deployments': ['deployment_statuses']
 }
 
+schema_cache = {}
+def write_schema(stream_id, stream_schema, stream_key_properties):
+    if stream_id not in schema_cache:
+        singer.write_schema(stream_id, stream_schema, stream_key_properties)
+        schema_cache[stream_id] = True
+    return None
+
 def do_sync(config, state, catalog):
     global process_globals
     global code_coverage_artifact_name
     global api_url
     global graphql_url
+    global fetch_forks
 
+    logger.info(f'config: {json.dumps(config)}')
     start_date = config['start_date'] if 'start_date' in config else None
 
     # optionally override the default for processing global stream data (e.g. teams)
@@ -2725,6 +2737,8 @@ def do_sync(config, state, catalog):
         logger.info('Using Github GraphQL URL {}'.format(graphql_url))
 
     logger.info('Process globals = {}'.format(str(process_globals)))
+
+    fetch_forks = config.get('fetch_forks', True)
 
     # get selected streams, make sure stream dependencies are met
     selected_stream_ids = get_selected_streams(catalog)
@@ -2816,7 +2830,7 @@ def do_sync(config, state, catalog):
             # if stream is selected, write schema and sync
             if stream_id in selected_stream_ids:
                 logger.info("Syncing stream: %s", stream_id)
-                singer.write_schema(stream_id, stream_schema, stream['key_properties'])
+                write_schema(stream_id, stream_schema, stream['key_properties'])
 
                 # get sync function and any sub streams
                 sync_func = SYNC_FUNCTIONS[stream_id]
@@ -2835,7 +2849,7 @@ def do_sync(config, state, catalog):
                         if sub_stream_id in selected_stream_ids:
                             sub_stream = get_stream_from_catalog(sub_stream_id, catalog)
                             stream_schemas[sub_stream_id] = sub_stream['schema']
-                            singer.write_schema(sub_stream_id, sub_stream['schema'],
+                            write_schema(sub_stream_id, sub_stream['schema'],
                                                 sub_stream['key_properties'])
 
                     # sync stream and its sub streams
