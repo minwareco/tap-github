@@ -2578,7 +2578,6 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
 
     repo_metadata = repo_cache.get(repo_path, None)
 
-    logger.info(f'fetch_forks : {fetch_forks}')
     if not repo_metadata or (repo_metadata.get('fork', False) == True and fetch_forks):
         if not repo_metadata:
             logger.info('Repo cache not hydrated, must fetch details')
