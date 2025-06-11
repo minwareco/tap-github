@@ -2886,7 +2886,7 @@ def main():
             logger.addToken(args.config['hmac_token'])
         if 'app_pem' in args.config:
             logger.addToken(args.config['app_pem'])
-        
+
     try:
         if args.discover:
             do_discover(args.config)
