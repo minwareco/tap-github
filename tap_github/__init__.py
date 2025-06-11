@@ -2879,8 +2879,13 @@ def main():
     global latest_request
     
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
-    if args.config and 'access_token' in args.config:
-        logger.addToken(args.config['access_token'])
+    if args.config:
+        if 'access_token' in args.config:
+            logger.addToken(args.config['access_token'])
+        if 'hmac_token' in args.config:
+            logger.addToken(args.config['hmac_token'])
+        if 'app_pem' in args.config:
+            logger.addToken(args.config['app_pem'])
         
     try:
         if args.discover:
