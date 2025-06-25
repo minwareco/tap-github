@@ -943,8 +943,7 @@ def get_all_issue_types(schemas, repo_path, state, mdata, _start_date):
         try:
             for response in authed_get_all_pages(
                     'issue_types',
-                    '{}orgs/{}/issue-types?per_page=100'.format(api_url, org),
-                    { 'X-GitHub-Api-Version': '2022-11-28' }
+                    '{}orgs/{}/issue-types?per_page=100'.format(api_url, org)
             ):
                 issue_types = response.json()
                 extraction_time = singer.utils.now()
