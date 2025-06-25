@@ -71,7 +71,7 @@ KEY_PROPERTIES = {
     'project_columns': ['id'],
     'project_cards': ['id'],
     'refs': ['id'],
-    'repositories': ['id'],
+    'repos': ['id'],
     'teams': ['id'],
     'team_members': ['id'],
     'team_memberships': ['url'],
