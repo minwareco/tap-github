@@ -63,6 +63,7 @@ KEY_PROPERTIES = {
     'issue_events': ['id'],
     'issue_labels': ['id'],
     'issue_milestones': ['id'],
+    'issue_types': ['id'],
     'commit_comments': ['id'],
     'projects': ['id'],
     'projects_v2': ['id'],
@@ -925,6 +926,38 @@ def get_all_issue_labels(schemas, repo_path, state, mdata, _start_date):
                 singer.write_record('issue_labels', rec, time_extracted=extraction_time)
                 singer.write_bookmark(state, repo_path, 'issue_labels', {'since': singer.utils.strftime(extraction_time)})
                 counter.increment()
+
+    return state
+
+def get_all_issue_types(schemas, repo_path, state, mdata, _start_date):
+    # https://docs.github.com/en/rest/issues/issue-types
+    org = repo_path.split('/')[0]
+    
+    # Only fetch this once per org
+    if process_globals == False or has_org_cache(org, 'issue_types'):
+        return state
+    
+    set_has_org_cache(org, 'issue_types')
+    
+    with metrics.record_counter('issue_types') as counter:
+        try:
+            for response in authed_get_all_pages(
+                    'issue_types',
+                    '{}orgs/{}/issue-types?per_page=100'.format(api_url, org)
+            ):
+                issue_types = response.json()
+                extraction_time = singer.utils.now()
+                for r in issue_types:
+                    r['_sdc_repository'] = repo_path
+
+                    # transform and write issue_types record
+                    with singer.Transformer(pre_hook=utf8_hook) as transformer:
+                        rec = transformer.transform(r, schemas, metadata=metadata.to_map(mdata))
+                    singer.write_record('issue_types', rec, time_extracted=extraction_time)
+                    singer.write_bookmark(state, repo_path, 'issue_types', {'since': singer.utils.strftime(extraction_time)})
+                    counter.increment()
+        except AuthException as e:
+            logger.warn('issue_types data could not be ingested because authorization failed on the API endpoint')
 
     return state
 
@@ -2679,6 +2712,7 @@ SYNC_FUNCTIONS = {
     'issue_events': get_all_issue_events,
     'issue_milestones': get_all_issue_milestones,
     'issue_labels': get_all_issue_labels,
+    'issue_types': get_all_issue_types,
     'projects': get_all_projects,
     'commit_comments': get_all_commit_comments,
     'repositories': get_repository_data,
