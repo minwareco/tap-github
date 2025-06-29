@@ -958,6 +958,9 @@ def get_all_issue_types(schemas, repo_path, state, mdata, _start_date):
                     counter.increment()
         except AuthException as e:
             logger.warn('issue_types data could not be ingested because authorization failed on the API endpoint')
+        except NotFoundException as e:
+            # for personal/non-organization accounts, the API endpoint returns 404
+            logger.warn('issue_types data could not be ingested because the API endpoint returned 404')
 
     return state
 
