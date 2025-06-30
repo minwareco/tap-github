@@ -43,6 +43,8 @@ using_pat = False
 
 REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 
+SKIP_WORKFLOW_FOR_REPO = 'epiFi/protos'
+
 KEY_PROPERTIES = {
     'branches': ['repo_name'],
     'code_coverage': ['id'],
@@ -1480,6 +1482,9 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_workflows(schemas, repo_path, state, mdata, start_date):
+    if SKIP_WORKFLOW_FOR_REPO in repo_path:
+        return state
+
     stream_name = 'workflows'
 
     extraction_time = singer.utils.now()
@@ -1513,6 +1518,9 @@ def get_all_workflows(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
+    if SKIP_WORKFLOW_FOR_REPO in repo_path:
+        return state
+    
     stream_name = 'workflow_runs'
 
     bookmark_value = get_bookmark(state, repo_path, stream_name, "since", start_date)
@@ -1568,6 +1576,9 @@ def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_workflow_run_jobs(schemas, repo_path, run_id, attempt, state, mdata, start_date):
+    if SKIP_WORKFLOW_FOR_REPO in repo_path:
+        return state
+    
     stream_name = 'workflow_run_jobs'
 
     extraction_time = singer.utils.now()
