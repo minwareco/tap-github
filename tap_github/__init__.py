@@ -43,7 +43,7 @@ using_pat = False
 
 REQUIRED_CONFIG_KEYS = ['start_date', 'access_token', 'repository']
 
-SKIP_WORKFLOW_FOR_REPO = 'epiFi/protos'
+SKIP_WORKFLOW_FOR_ORG = 'epiFi'
 
 KEY_PROPERTIES = {
     'branches': ['repo_name'],
@@ -1482,7 +1482,7 @@ def get_all_code_coverage(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_workflows(schemas, repo_path, state, mdata, start_date):
-    if SKIP_WORKFLOW_FOR_REPO in repo_path:
+    if SKIP_WORKFLOW_FOR_ORG in repo_path:
         return state
 
     stream_name = 'workflows'
@@ -1518,7 +1518,7 @@ def get_all_workflows(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
-    if SKIP_WORKFLOW_FOR_REPO in repo_path:
+    if SKIP_WORKFLOW_FOR_ORG in repo_path:
         return state
     
     stream_name = 'workflow_runs'
@@ -1576,7 +1576,7 @@ def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
     return state
 
 def get_all_workflow_run_jobs(schemas, repo_path, run_id, attempt, state, mdata, start_date):
-    if SKIP_WORKFLOW_FOR_REPO in repo_path:
+    if SKIP_WORKFLOW_FOR_ORG in repo_path:
         return state
     
     stream_name = 'workflow_run_jobs'
