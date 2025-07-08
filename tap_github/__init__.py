@@ -2216,19 +2216,23 @@ def get_commit_detail_api(commit, repo_path):
                 'large. Treating as large file and skipping. Original excpetion: ' + repr(err))
             commitFile['is_large_patch'] = True
 
-def get_commit_detail_local(commit, repo_path, gitLocal):
+def get_commit_detail_local(commit, repo_path, gitLocal, commits_only=False):
     try:
-        changes = gitLocal.getCommitDiff(repo_path, commit['sha'])
-        commit['files'] = changes
+        if commits_only:
+            # In commit-only mode, skip file diff processing and return empty files list
+            commit['files'] = []
+        else:
+            changes = gitLocal.getCommitDiff(repo_path, commit['sha'])
+            commit['files'] = changes
     except Exception as e:
         # This generally shouldn't happen since we've already fetched and checked out the head
         # commit successfully, so it probably indicates some sort of system error. Just let it
         # bubbl eup for now.
         raise e
 
-def get_commit_changes(commit, repo_path, useLocal, gitLocal):
+def get_commit_changes(commit, repo_path, useLocal, gitLocal, commits_only=False):
     if useLocal:
-        get_commit_detail_local(commit, repo_path, gitLocal)
+        get_commit_detail_local(commit, repo_path, gitLocal, commits_only)
     else:
         get_commit_detail_api(commit, repo_path)
 
@@ -2366,17 +2370,18 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
 
     return state
 
-async def getChangedfilesForCommits(commits, repo_path, hasLocal, gitLocal):
+async def getChangedfilesForCommits(commits, repo_path, hasLocal, gitLocal, commits_only=False):
     coros = []
     for commit in commits:
-        changesCoro = asyncio.to_thread(get_commit_changes, commit, repo_path, hasLocal, gitLocal)
+        changesCoro = asyncio.to_thread(get_commit_changes, commit, repo_path, hasLocal, gitLocal, commits_only)
         coros.append(changesCoro)
     results = await asyncio.gather(*coros)
     return results
 
-def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal):
+def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal, commits_only=False):
     # Get the set of all commits we have fetched previously
-    fetchedCommits = get_bookmark(state, repo_path, "commit_files", "fetchedCommits")
+    stream_name = 'commit_files_meta' if commits_only else 'commit_files'
+    fetchedCommits = get_bookmark(state, repo_path, stream_name, "fetchedCommits")
     if not fetchedCommits:
         fetchedCommits = {}
 
@@ -2402,7 +2407,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
     count = 0
     # The lage majority of PRs are less than this many commits
     LOG_PAGE_SIZE = 10000
-    with metrics.record_counter('commit_files') as counter:
+    with metrics.record_counter(stream_name) as counter:
         # First, walk through all the heads and queue up all the commits that need to be imported
         commitQ = []
 
@@ -2507,13 +2512,14 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
             commitQ = commitQ[BATCH_SIZE:]
             logger.info('getChangedFilesForCommits -- [{}]'.format([c['sha'] for c in curQ]))
             changedFileList = asyncio.run(getChangedfilesForCommits(curQ, repo_path, hasLocal,
-                gitLocal))
+                gitLocal, commits_only))
             for commitfiles in changedFileList:
+                stream_name = 'commit_files_meta' if commits_only else 'commit_files'
                 with singer.Transformer() as transformer:
-                    rec = transformer.transform(commitfiles, schemas['commit_files'],
+                    rec = transformer.transform(commitfiles, schemas[stream_name],
                         metadata=metadata.to_map(mdata))
                 counter.increment()
-                singer.write_record('commit_files', rec, time_extracted=extraction_time)
+                singer.write_record(stream_name, rec, time_extracted=extraction_time)
 
             finishedCount += BATCH_SIZE
             if i % (BATCH_SIZE * PRINT_INTERVAL) == 0:
@@ -2528,7 +2534,7 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
 
     # Don't write until the end so that we don't record fetchedCommits if we fail and never get
     # their parents.
-    singer.write_bookmark(state, repo_path, 'commit_files', {
+    singer.write_bookmark(state, repo_path, stream_name, {
         'fetchedCommits': fetchedCommits
     })
 
@@ -2706,6 +2712,7 @@ SYNC_FUNCTIONS = {
     'branches': get_all_branches,
     'commits': get_all_commits,
     'commit_files': get_all_commit_files,
+    'commit_files_meta': get_all_commit_files,
     'comments': get_all_comments,
     'issues': get_all_issues,
     'assignees': get_all_assignees,
@@ -2850,12 +2857,14 @@ def do_sync(config, state, catalog):
                 logger.warning(f'{repo} is not available, skipping')
                 continue
 
+        commits_only = config.get('commits_only', False)
         gitLocal = GitLocal({
             'access_token': access_token,
             'workingDir': '/tmp'
         }, 'https://x-access-token:{}@github.com/{}.git',
             config['hmac_token'] if 'hmac_token' in config else None,
-            logger=logger)
+            logger=logger,
+            commitsOnly=commits_only)
 
         for stream in catalog['streams']:
             stream_id = stream['tap_stream_id']
@@ -2892,9 +2901,9 @@ def do_sync(config, state, catalog):
                                                 sub_stream['key_properties'])
 
                     # sync stream and its sub streams
-                    if stream_id == 'commit_files':
+                    if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
                         state = sync_func(stream_schemas, repo, state, mdata, start_date,
-                            gitLocal)
+                            gitLocal, commits_only)
                     else:
                         state = sync_func(stream_schemas, repo, state, mdata, start_date)
         # Write the state after each repo. There use to be a check for:
