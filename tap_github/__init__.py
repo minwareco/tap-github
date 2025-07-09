@@ -2419,17 +2419,18 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
                 #logger.info('Head already fetched {} {}'.format(headRef, headSha))
                 continue
 
-            # Emit the ref record as well
-            refRecord = {
-                'id': '{}/{}'.format(repo_path, headRef),
-                '_sdc_repository': repo_path,
-                'ref': headRef,
-                'sha': headSha
-            }
-            with singer.Transformer() as transformer:
-                rec = transformer.transform(refRecord, schemas['refs'],
-                    metadata=metadata.to_map(mdata))
-            singer.write_record('refs', rec, time_extracted=extraction_time)
+            # Emit the ref record as well (only in regular mode, not commit-only)
+            if not commits_only:
+                refRecord = {
+                    'id': '{}/{}'.format(repo_path, headRef),
+                    '_sdc_repository': repo_path,
+                    'ref': headRef,
+                    'sha': headSha
+                }
+                with singer.Transformer() as transformer:
+                    rec = transformer.transform(refRecord, schemas['refs'],
+                        metadata=metadata.to_map(mdata))
+                singer.write_record('refs', rec, time_extracted=extraction_time)
 
             # Maintain a list of parents we are waiting to see
             missingParents = {}
@@ -2890,7 +2891,12 @@ def do_sync(config, state, catalog):
 
                 # sync stream
                 if not sub_stream_ids:
-                    state = sync_func(stream_schema, repo, state, mdata, start_date)
+                    if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
+                        commits_only = stream_id == 'commit_files_meta'
+                        stream_schemas = {stream_id: stream_schema}
+                        state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only)
+                    else:
+                        state = sync_func(stream_schema, repo, state, mdata, start_date)
 
                 # handle streams with sub streams
                 else:
