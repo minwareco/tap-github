@@ -2745,6 +2745,7 @@ SUB_STREAMS = {
     'projects': ['project_cards', 'project_columns'],
     'teams': ['team_members', 'team_memberships'],
     'commit_files': ['refs'],
+    'commit_files_meta': ['refs'],
     'workflow_runs': ['workflow_run_jobs'],
     'deployments': ['deployment_statuses']
 }
