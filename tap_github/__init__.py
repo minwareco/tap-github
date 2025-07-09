@@ -2216,23 +2216,19 @@ def get_commit_detail_api(commit, repo_path):
                 'large. Treating as large file and skipping. Original excpetion: ' + repr(err))
             commitFile['is_large_patch'] = True
 
-def get_commit_detail_local(commit, repo_path, gitLocal, commits_only=False):
+def get_commit_detail_local(commit, repo_path, gitLocal):
     try:
-        if commits_only:
-            # In commit-only mode, skip file diff processing and return empty files list
-            commit['files'] = []
-        else:
-            changes = gitLocal.getCommitDiff(repo_path, commit['sha'])
-            commit['files'] = changes
+        changes = gitLocal.getCommitDiff(repo_path, commit['sha'])
+        commit['files'] = changes
     except Exception as e:
         # This generally shouldn't happen since we've already fetched and checked out the head
         # commit successfully, so it probably indicates some sort of system error. Just let it
         # bubbl eup for now.
         raise e
 
-def get_commit_changes(commit, repo_path, useLocal, gitLocal, commits_only=False):
+def get_commit_changes(commit, repo_path, useLocal, gitLocal):
     if useLocal:
-        get_commit_detail_local(commit, repo_path, gitLocal, commits_only)
+        get_commit_detail_local(commit, repo_path, gitLocal)
     else:
         get_commit_detail_api(commit, repo_path)
 
@@ -2370,10 +2366,10 @@ def get_all_commits(schema, repo_path,  state, mdata, start_date):
 
     return state
 
-async def getChangedfilesForCommits(commits, repo_path, hasLocal, gitLocal, commits_only=False):
+async def getChangedfilesForCommits(commits, repo_path, hasLocal, gitLocal):
     coros = []
     for commit in commits:
-        changesCoro = asyncio.to_thread(get_commit_changes, commit, repo_path, hasLocal, gitLocal, commits_only)
+        changesCoro = asyncio.to_thread(get_commit_changes, commit, repo_path, hasLocal, gitLocal)
         coros.append(changesCoro)
     results = await asyncio.gather(*coros)
     return results
@@ -2511,8 +2507,15 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
             curQ = commitQ[0:BATCH_SIZE]
             commitQ = commitQ[BATCH_SIZE:]
             logger.info('getChangedFilesForCommits -- [{}]'.format([c['sha'] for c in curQ]))
-            changedFileList = asyncio.run(getChangedfilesForCommits(curQ, repo_path, hasLocal,
-                gitLocal, commits_only))
+            if commits_only:
+                for commit in curQ:
+                    commit['files'] = []
+                    commit['_sdc_repository'] = repo_path
+                    commit['id'] = '{}/{}'.format(repo_path, commit['sha'])
+                changedFileList = curQ
+            else:
+                changedFileList = asyncio.run(getChangedfilesForCommits(curQ, repo_path, hasLocal,
+                    gitLocal))
             for commitfiles in changedFileList:
                 stream_name = 'commit_files_meta' if commits_only else 'commit_files'
                 with singer.Transformer() as transformer:
@@ -2857,14 +2860,13 @@ def do_sync(config, state, catalog):
                 logger.warning(f'{repo} is not available, skipping')
                 continue
 
-        commits_only = config.get('commits_only', False)
         gitLocal = GitLocal({
             'access_token': access_token,
             'workingDir': '/tmp'
         }, 'https://x-access-token:{}@github.com/{}.git',
             config['hmac_token'] if 'hmac_token' in config else None,
             logger=logger,
-            commitsOnly=commits_only)
+            commitsOnly='commit_files_meta' in selected_stream_ids)
 
         for stream in catalog['streams']:
             stream_id = stream['tap_stream_id']
@@ -2902,6 +2904,7 @@ def do_sync(config, state, catalog):
 
                     # sync stream and its sub streams
                     if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
+                        commits_only = stream_id == 'commit_files_meta'
                         state = sync_func(stream_schemas, repo, state, mdata, start_date,
                             gitLocal, commits_only)
                     else:
