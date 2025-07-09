@@ -2850,6 +2850,8 @@ def do_sync(config, state, catalog):
     for repo in allRepos:
         logger.info("Starting sync of repository: %s", repo)
 
+        commits_only = 'commit_files_meta' in selected_stream_ids
+
         org = repo.split('/')[0]
         access_token = set_auth_headers(config, org)
 
@@ -2866,7 +2868,7 @@ def do_sync(config, state, catalog):
         }, 'https://x-access-token:{}@github.com/{}.git',
             config['hmac_token'] if 'hmac_token' in config else None,
             logger=logger,
-            commitsOnly='commit_files_meta' in selected_stream_ids)
+            commitsOnly=commits_only)
 
         for stream in catalog['streams']:
             stream_id = stream['tap_stream_id']
@@ -2904,7 +2906,6 @@ def do_sync(config, state, catalog):
 
                     # sync stream and its sub streams
                     if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
-                        commits_only = stream_id == 'commit_files_meta'
                         state = sync_func(stream_schemas, repo, state, mdata, start_date,
                             gitLocal, commits_only)
                     else:
