@@ -2374,7 +2374,7 @@ async def getChangedfilesForCommits(commits, repo_path, hasLocal, gitLocal):
     results = await asyncio.gather(*coros)
     return results
 
-def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal, commits_only=False):
+def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal, commits_only=False, selected_stream_ids=None):
     # Get the set of all commits we have fetched previously
     stream_name = 'commit_files_meta' if commits_only else 'commit_files'
     fetchedCommits = get_bookmark(state, repo_path, stream_name, "fetchedCommits")
@@ -2419,8 +2419,8 @@ def get_all_commit_files(schemas, repo_path,  state, mdata, start_date, gitLocal
                 #logger.info('Head already fetched {} {}'.format(headRef, headSha))
                 continue
 
-            # Emit the ref record as well (only in regular mode, not commit-only)
-            if not commits_only:
+            # Emit the ref record as well (only if refs stream is selected)
+            if selected_stream_ids and 'refs' in selected_stream_ids:
                 refRecord = {
                     'id': '{}/{}'.format(repo_path, headRef),
                     '_sdc_repository': repo_path,
@@ -2894,7 +2894,7 @@ def do_sync(config, state, catalog):
                     if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
                         commits_only = stream_id == 'commit_files_meta'
                         stream_schemas = {stream_id: stream_schema}
-                        state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only)
+                        state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only, selected_stream_ids)
                     else:
                         state = sync_func(stream_schema, repo, state, mdata, start_date)
 
@@ -2913,7 +2913,7 @@ def do_sync(config, state, catalog):
                     # sync stream and its sub streams
                     if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
                         state = sync_func(stream_schemas, repo, state, mdata, start_date,
-                            gitLocal, commits_only)
+                            gitLocal, commits_only, selected_stream_ids)
                     else:
                         state = sync_func(stream_schemas, repo, state, mdata, start_date)
         # Write the state after each repo. There use to be a check for:
