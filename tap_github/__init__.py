@@ -876,9 +876,8 @@ def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
                     ):
                         team_metrics = response.json()
                         process_copilot_metrics(team_metrics, team_slug)
-                            
-                except (AuthException, NotFoundException, UnprocessableError) as err:
-                    # Team may not have enough members or access restrictions
+                except (NotFoundException, UnprocessableError) as err:
+                    # Team may not have enough members or date range issues
                     logger.info('Could not fetch copilot metrics for team {} in org {}: {}'.format(team_slug, org, str(err)))
                     continue
                     
