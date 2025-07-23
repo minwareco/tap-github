@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "org": {
+      "type": "string",
+      "description": "Organization name"
+    },
+    "team_slug": {
+      "type": "string",
+      "description": "Team slug (empty string for org-level data)"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date in YYYY-MM-DD format"
+    },
+    "record": {
+      "type": "string",
+      "description": "JSON string containing the full API response with added org and team_slug fields"
+    }
+  },
+  "required": ["org", "team_slug", "date", "record"]
+}
