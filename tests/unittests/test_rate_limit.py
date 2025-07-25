@@ -46,7 +46,6 @@ class TestRateLimit(unittest.TestCase):
         resp = api_call()
         resp.headers["X-RateLimit-Reset"] = int(round(time.time(), 0)) + 10
         resp.headers["X-RateLimit-Remaining"] = 15
-        resp.headers["X-RateLimit-Remaining"] = 15
 
         tap_github.rate_throttling(resp)
 
