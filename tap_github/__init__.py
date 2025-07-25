@@ -160,6 +160,10 @@ ERROR_CODE_EXCEPTION_MAPPING = {
         "raise_exception": UnprocessableError,
         "message": "The request was not able to process right now."
     },
+    429: {
+        "raise_exception": RateLimitExceeded,
+        "message": "Too many requests. Rate limit exceeded."
+    },
     451: {
         "raise_exception": UnavailableForLegalReasonsError,
         "message": "The requested resource is unavailable for legal reasons"
@@ -254,12 +258,37 @@ def get_bookmark(state, repo, stream_name, bookmark_key, start_date=None):
         return start_date
     return None
 
+def is_rate_limit_error(resp, response_json):
+    """Check if a 403 error is actually a rate limit error"""
+    if resp.status_code != 403:
+        return False
+    
+    # Check for rate limit headers
+    if resp.headers.get('X-RateLimit-Remaining') == '0':
+        return True
+    
+    # Check for rate limit messages in response
+    message = response_json.get('message', '').lower()
+    rate_limit_indicators = [
+        'api rate limit exceeded',
+        'secondary rate limit triggered',
+        'you have exceeded a secondary rate limit'
+    ]
+    
+    return any(indicator in message for indicator in rate_limit_indicators)
+
 def raise_for_error(resp, source, url):
     error_code = resp.status_code
     try:
         response_json = resp.json()
     except Exception:
         response_json = {}
+
+    # Handle 403 errors - check if it's a rate limit first
+    if error_code == 403 and is_rate_limit_error(resp, response_json):
+        # This is a rate limit, not an auth error - let rate_throttling handle it
+        rate_throttling(resp)
+        return  # If rate_throttling doesn't raise, continue normally
 
     if error_code == 404:
         details = ERROR_CODE_EXCEPTION_MAPPING.get(error_code).get("message")
@@ -278,18 +307,81 @@ def calculate_seconds(epoch):
     current = time.time()
     return int(round((epoch - current), 0))
 
-def rate_throttling(response):
-    if response.headers.get('x-ratelimit-remaining') == None:
-        return
-    if int(response.headers['X-RateLimit-Remaining']) < 10:
-        seconds_to_sleep = calculate_seconds(int(response.headers['X-RateLimit-Reset']))
-
-        #if seconds_to_sleep > 600:
-        #    message = "API rate limit exceeded, please try after {} seconds.".format(seconds_to_sleep)
-        #    raise RateLimitExceeded(message) from None
-
-        logger.info("API rate limit exceeded. Tap will retry the data collection after %s seconds.", seconds_to_sleep)
-        time.sleep(seconds_to_sleep + 10)
+def rate_throttling(response, retry_count=0):
+    """Handle rate limiting according to GitHub's guidelines"""
+    import random
+    
+    # Check for primary rate limit (X-RateLimit-Remaining = 0)
+    remaining_header = response.headers.get('X-RateLimit-Remaining')
+    if remaining_header is not None and int(remaining_header) == 0:
+        # Primary rate limit hit - wait until X-RateLimit-Reset time
+        reset_header = response.headers.get('X-RateLimit-Reset')
+        if reset_header is not None:
+            seconds_to_sleep = calculate_seconds(int(reset_header))
+            
+            if seconds_to_sleep > 600:  # More than 10 minutes
+                message = "API rate limit exceeded, please try after {} seconds.".format(seconds_to_sleep)
+                raise RateLimitExceeded(message) from None
+            
+            # Add small jitter (±5%) to prevent thundering herd
+            jitter = random.uniform(0.95, 1.05)
+            sleep_time = seconds_to_sleep * jitter
+            
+            logger.info("Primary rate limit exceeded. Waiting until reset time (%s seconds).", int(sleep_time))
+            time.sleep(sleep_time)
+            return
+    
+    # Proactive throttling: slow down when getting close to limit
+    elif remaining_header is not None and int(remaining_header) < 10:
+        # Not at zero yet, but getting close - add small delay to prevent hitting limit
+        logger.info("Approaching rate limit (remaining: %s). Adding small delay.", remaining_header)
+        time.sleep(1)  # Small 1 second delay when close to limit
+    
+    # Check for secondary rate limit (Retry-After header)
+    retry_after = response.headers.get('Retry-After')
+    if retry_after is not None:
+        try:
+            seconds_to_sleep = int(retry_after)
+            if seconds_to_sleep > 600:  # More than 10 minutes
+                message = "Secondary rate limit exceeded, please try after {} seconds.".format(seconds_to_sleep)
+                raise RateLimitExceeded(message) from None
+            
+            # Follow GitHub's guidance exactly
+            logger.info("Secondary rate limit hit. Waiting for Retry-After period (%s seconds).", seconds_to_sleep)
+            time.sleep(seconds_to_sleep)
+            return
+        except ValueError:
+            # Retry-After might be a date instead of seconds, handle gracefully
+            logger.warning("Could not parse Retry-After header: %s", retry_after)
+    
+    # Handle secondary rate limits without specific headers
+    # GitHub says: wait at least 1 minute, then exponential backoff
+    if response.status_code in [403, 429]:
+        try:
+            response_json = response.json()
+        except:
+            response_json = {}
+            
+        # Check if it's a secondary rate limit message
+        message = response_json.get('message', '').lower()
+        if 'secondary rate limit' in message or remaining_header == '0':
+            # Use exponential backoff: 60s, 120s, 240s, etc.
+            base_sleep = 60 * (2 ** retry_count)  # Exponential backoff
+            
+            if base_sleep > 600:  # More than 10 minutes
+                raise RateLimitExceeded("Secondary rate limit retry time exceeds maximum")
+            
+            # Add jitter to prevent synchronized retries
+            jitter = random.uniform(0.9, 1.1)
+            sleep_time = base_sleep * jitter
+            
+            logger.info("Secondary rate limit detected. Exponential backoff: waiting %s seconds (attempt %s).", 
+                       int(sleep_time), retry_count + 1)
+            time.sleep(sleep_time)
+        else:
+            # Unknown rate limit scenario - wait at least 1 minute as per GitHub
+            logger.info("Rate limit detected without specific timing. Waiting 60 seconds minimum.")
+            time.sleep(60)
 
 # pylint: disable=dangerous-default-value
 # Retry for up to two minutes, then die. It's important not to spend too long on this since some
@@ -310,6 +402,8 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
         just_refreshed_token = False
         network_retry_count = 0
         network_max_retries = 5
+        rate_limit_retry_count = 0
+        max_rate_limit_retries = 3  # Limit rate limit retries to prevent infinite loops
         
         while True:
             try:
@@ -341,6 +435,33 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
                                 'and then retrying url {}.'.format(resp.status_code, RETRY_WAIT, url))
                             retry_time += RETRY_WAIT
                             time.sleep(RETRY_WAIT)
+                    elif resp.status_code == 403:
+                        # Check if this is a rate limit error that we can retry
+                        try:
+                            response_json = resp.json()
+                        except Exception:
+                            response_json = {}
+                        
+                        if is_rate_limit_error(resp, response_json) and rate_limit_retry_count < max_rate_limit_retries:
+                            rate_limit_retry_count += 1
+                            logger.info('Rate limit detected (attempt {} of {}), retrying after delay.'.format(
+                                rate_limit_retry_count, max_rate_limit_retries))
+                            rate_throttling(resp, rate_limit_retry_count - 1)
+                            # Continue the loop to retry the request
+                        else:
+                            # Not a rate limit or max retries exceeded, handle as normal error
+                            raise_for_error(resp, source, url)
+                    elif resp.status_code == 429:
+                        # 429 is always a rate limit error
+                        if rate_limit_retry_count < max_rate_limit_retries:
+                            rate_limit_retry_count += 1
+                            logger.info('HTTP 429 rate limit detected (attempt {} of {}), retrying after delay.'.format(
+                                rate_limit_retry_count, max_rate_limit_retries))
+                            rate_throttling(resp, rate_limit_retry_count - 1)
+                            # Continue the loop to retry the request
+                        else:
+                            # Max retries exceeded, handle as normal error
+                            raise_for_error(resp, source, url)
                     elif resp.status_code != 200 and resp.status_code != 201:
                         raise_for_error(resp, source, url)
                     else:
