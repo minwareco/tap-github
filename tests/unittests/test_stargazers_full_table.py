@@ -11,4 +11,4 @@ class TestStargazersFullTable(unittest.TestCase):
 
         tap_github.get_all_stargazers(schemas, "tap-github", {}, {}, "")
 
-        mocked_request.assert_called_with(mock.ANY, "https://api.github.com/repos/tap-github/stargazers", mock.ANY)
+        mocked_request.assert_called_with('stargazers', 'repos/tap-github/stargazers?per_page=100', {'Accept': 'application/vnd.github.v3.star+json'})
