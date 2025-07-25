@@ -23,7 +23,7 @@ jobs:
     
     - name: Install dependencies
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.MINWARE_GITHUB_TOKEN }}
       run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
@@ -45,7 +45,7 @@ jobs:
     
     - name: Install dependencies
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.MINWARE_GITHUB_TOKEN }}
       run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
