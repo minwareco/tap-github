@@ -12,7 +12,7 @@ class TestRateLimit(unittest.TestCase):
 
 
     def test_rate_limt_wait(self, mocked_sleep):
-
+        """This test is no longer relevant - rate_throttling doesn't handle retries anymore"""
         mocked_sleep.side_effect = None
 
         resp = api_call()
@@ -21,26 +21,22 @@ class TestRateLimit(unittest.TestCase):
 
         tap_github.rate_throttling(resp)
 
-        # Check that sleep was called with approximately 120 seconds (±5% due to jitter)
-        self.assertTrue(mocked_sleep.called)
-        actual_sleep_time = mocked_sleep.call_args[0][0]
-        expected_base = 120  # No buffer now, just the reset time
-        self.assertGreaterEqual(actual_sleep_time, expected_base * 0.95)  # 114 seconds minimum
-        self.assertLessEqual(actual_sleep_time, expected_base * 1.05)     # 126 seconds maximum
+        # rate_throttling now only does proactive throttling, not reactive
+        # It won't sleep for remaining=0, only for remaining<10 but >0
+        self.assertFalse(mocked_sleep.called)
 
 
     def test_rate_limit_exception(self, mocked_sleep):
-
+        """This test is no longer relevant - rate_throttling doesn't raise exceptions anymore"""
         mocked_sleep.side_effect = None
 
         resp = api_call()
         resp.headers["X-RateLimit-Reset"] = int(round(time.time(), 0)) + 601
         resp.headers["X-RateLimit-Remaining"] = 0
 
-        try:
-            tap_github.rate_throttling(resp)
-        except tap_github.RateLimitExceeded as e:
-            self.assertEqual(str(e), "API rate limit exceeded, please try after 601 seconds.")
+        # rate_throttling no longer raises exceptions or handles retries
+        tap_github.rate_throttling(resp)
+        self.assertFalse(mocked_sleep.called)  # Should not sleep for remaining=0
 
 
     def test_rate_limit_not_exceeded(self, mocked_sleep):
