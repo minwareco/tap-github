@@ -13,11 +13,18 @@ class Mockresponse:
 def get_response(json):
     yield Mockresponse(resp=json)
 
+@mock.patch('time.sleep')
+@mock.patch("tap_github.__init__.has_org_cache")
+@mock.patch("tap_github.__init__.set_has_org_cache")
+@mock.patch("tap_github.__init__.getAccountType")
 @mock.patch("tap_github.__init__.authed_get_all_pages")
 class TestKeyErrorSlug(unittest.TestCase):
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_selected_slug_selected(self, mocked_team_members, mocked_request):
+    def test_slug_sub_stream_selected_slug_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+        mocked_account_type.return_value = 'ORG'
+        mocked_has_cache.return_value = False
+        tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 
         mocked_request.return_value = get_response(json)
@@ -37,10 +44,13 @@ class TestKeyErrorSlug(unittest.TestCase):
             "metadata": {"inclusion": "available"}
         }]
         tap_github.get_all_teams(schemas, "tap-github", {}, mdata, "")
-        self.assertEquals(mocked_team_members.call_count, 1)
+        self.assertEqual(mocked_team_members.call_count, 1)
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_not_selected_slug_selected(self, mocked_team_members, mocked_request):
+    def test_slug_sub_stream_not_selected_slug_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+        mocked_account_type.return_value = 'ORG'
+        mocked_has_cache.return_value = False
+        tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 
         mocked_request.return_value = get_response(json)
@@ -60,10 +70,13 @@ class TestKeyErrorSlug(unittest.TestCase):
             "metadata": {"inclusion": "available"}
         }]
         tap_github.get_all_teams(schemas, "tap-github", {}, mdata, "")
-        self.assertEquals(mocked_team_members.call_count, 0)
+        self.assertEqual(mocked_team_members.call_count, 0)
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_selected_slug_not_selected(self, mocked_team_members, mocked_request):
+    def test_slug_sub_stream_selected_slug_not_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+        mocked_account_type.return_value = 'ORG'
+        mocked_has_cache.return_value = False
+        tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 
         mocked_request.return_value = get_response(json)
@@ -83,10 +96,13 @@ class TestKeyErrorSlug(unittest.TestCase):
             "metadata": {"inclusion": "available"}
         }]
         tap_github.get_all_teams(schemas, "tap-github", {}, mdata, "")
-        self.assertEquals(mocked_team_members.call_count, 1)
+        self.assertEqual(mocked_team_members.call_count, 1)
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_not_selected_slug_not_selected(self, mocked_team_members, mocked_request):
+    def test_slug_sub_stream_not_selected_slug_not_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+        mocked_account_type.return_value = 'ORG'
+        mocked_has_cache.return_value = False
+        tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 
         mocked_request.return_value = get_response(json)
@@ -106,13 +122,14 @@ class TestKeyErrorSlug(unittest.TestCase):
             "metadata": {"inclusion": "available"}
         }]
         tap_github.get_all_teams(schemas, "tap-github", {}, mdata, "")
-        self.assertEquals(mocked_team_members.call_count, 0)
+        self.assertEqual(mocked_team_members.call_count, 0)
 
+@mock.patch('time.sleep')
 @mock.patch("tap_github.__init__.authed_get_all_pages")
 class TestKeyErrorUser(unittest.TestCase):
 
     @mock.patch("singer.write_record")
-    def test_user_not_selected_in_stargazers(self, mocked_write_records, mocked_request):
+    def test_user_not_selected_in_stargazers(self, mocked_write_records, mocked_request, mocked_sleep):
         json = {"key": "value", "user": {"id": 1}}
 
         mocked_request.return_value = get_response(json)
@@ -132,10 +149,10 @@ class TestKeyErrorUser(unittest.TestCase):
           "metadata": {"inclusion": "available"}
         }]
         tap_github.get_all_stargazers(schemas, "tap-github", {}, mdata, "")
-        self.assertEquals(mocked_write_records.call_count, 1)
+        self.assertEqual(mocked_write_records.call_count, 1)
 
     @mock.patch("singer.write_record")
-    def test_user_selected_in_stargazers(self, mocked_write_records, mocked_request):
+    def test_user_selected_in_stargazers(self, mocked_write_records, mocked_request, mocked_sleep):
         json = {"key": "value", "user": {"id": 1}}
 
         mocked_request.return_value = get_response(json)
@@ -155,4 +172,4 @@ class TestKeyErrorUser(unittest.TestCase):
           "metadata": {"inclusion": "available"}
         }]
         tap_github.get_all_stargazers(schemas, "tap-github", {}, mdata, "")
-        self.assertEquals(mocked_write_records.call_count, 1)
+        self.assertEqual(mocked_write_records.call_count, 1)
