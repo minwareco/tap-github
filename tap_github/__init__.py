@@ -380,16 +380,41 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
                         if (resp.status_code == 429 or is_rate_limit_error(resp, response_json)) and rate_limit_retry_count < max_rate_limit_retries:
                             rate_limit_retry_count += 1
                             
-                            # Simple exponential backoff like tap-bitbucket: 60s → 120s → 240s
-                            from random import randint
-                            sleep_time = 60 * (2 ** (rate_limit_retry_count - 1)) + randint(5, 15)
+                            # Follow GitHub's rate limiting guidance
+                            reset_header = resp.headers.get('X-RateLimit-Reset')
+                            remaining_header = resp.headers.get('X-RateLimit-Remaining')
+                            retry_after = resp.headers.get('Retry-After')
                             
-                            # Safety check - don't wait more than 10 minutes
-                            if sleep_time > 600:
+                            if remaining_header == '0' and reset_header:
+                                # Primary rate limit hit - wait until reset time
+                                sleep_time = calculate_seconds(int(reset_header))
+                                logger.info('Primary rate limit hit (remaining=0), waiting until reset: {} seconds (attempt {} of {})'.format(
+                                    sleep_time, rate_limit_retry_count, max_rate_limit_retries))
+                            elif retry_after:
+                                # Secondary rate limit - use Retry-After header
+                                try:
+                                    sleep_time = int(retry_after)
+                                    logger.info('Secondary rate limit detected, using Retry-After: {} seconds (attempt {} of {})'.format(
+                                        sleep_time, rate_limit_retry_count, max_rate_limit_retries))
+                                except ValueError:
+                                    # Fallback to exponential backoff if Retry-After is not a number
+                                    from random import randint
+                                    sleep_time = 60 * (2 ** (rate_limit_retry_count - 1)) + randint(5, 15)
+                                    logger.info('Rate limit detected, using exponential backoff: {} seconds (attempt {} of {})'.format(
+                                        sleep_time, rate_limit_retry_count, max_rate_limit_retries))
+                            else:
+                                # Otherwise, wait at least one minute with exponential backoff
+                                from random import randint
+                                sleep_time = 60 * (2 ** (rate_limit_retry_count - 1)) + randint(5, 15)
+                                logger.info('Rate limit detected, using exponential backoff (min 1 minute): {} seconds (attempt {} of {})'.format(
+                                    sleep_time, rate_limit_retry_count, max_rate_limit_retries))
+                            
+                            
+                            # Safety check - don't wait more than 1 hour (GitHub can rate limit until next hour)
+                            if sleep_time > 3600:
+                                logger.warning('Rate limit sleep time ({} seconds) exceeds 1 hour limit, failing request'.format(sleep_time))
                                 raise_for_error(resp, source, url)
                             
-                            logger.info('Rate limit detected (attempt {} of {}), sleeping {} seconds before retry.'.format(
-                                rate_limit_retry_count, max_rate_limit_retries, sleep_time))
                             time.sleep(sleep_time)
                             # Continue the loop to retry the request
                         else:
