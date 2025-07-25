@@ -80,13 +80,14 @@ class TestExceptionHandling(unittest.TestCase):
         except tap_github.NotFoundException as e:
             self.assertEquals(str(e), "HTTP-error-code: 404, URL: . Error: The resource you have specified cannot be found or it is a personal account repository. Please refer '{}' for more details.".format(json.get("documentation_url")))
 
-    def test_500_error(self, mocked_request):
+    @mock.patch('time.sleep')
+    def test_500_error(self, mocked_sleep, mocked_request):
         mocked_request.return_value = get_response(500, raise_error = True)
 
         try:
             tap_github.authed_get("", "")
         except tap_github.InternalServerError as e:
-            self.assertEquals(str(e), "HTTP-error-code: 500, URL: . Error: An error has occurred at Github's end.")
+            self.assertIn("Internal server error 500 persisted after attempting to retry for 120 seconds", str(e))
 
     def test_301_error(self, mocked_request):
         mocked_request.return_value = get_response(301, raise_error = True)
