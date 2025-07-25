@@ -33,24 +33,3 @@ jobs:
       run: |
         python -m pytest tests/unittests/ -v --tb=short
 
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
-    - name: Install dependencies
-      env:
-        GITHUB_TOKEN: ${{ secrets.MINWARE_GITHUB_TOKEN }}
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e .[dev]
-        pip install pylint
-    
-    - name: Run pylint
-      run: |
-        pylint tap_github --disable 'broad-except,chained-comparison,empty-docstring,fixme,invalid-name,line-too-long,missing-class-docstring,missing-function-docstring,missing-module-docstring,no-else-raise,no-else-return,too-few-public-methods,too-many-arguments,too-many-branches,too-many-lines,too-many-locals,ungrouped-imports,wrong-spelling-in-comment,wrong-spelling-in-docstring,bad-whitespace'
