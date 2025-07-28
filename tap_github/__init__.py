@@ -305,7 +305,9 @@ def raise_for_error(resp, source, url):
 
 def calculate_seconds(epoch):
     current = time.time()
-    return int(round((epoch - current), 0))
+    seconds = int(round((epoch - current), 0))
+    # Ensure we never return negative sleep time
+    return max(0, seconds)
 
 def rate_throttling(response):
     """Simple proactive rate limiting - called after successful requests"""
