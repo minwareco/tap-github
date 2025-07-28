@@ -104,3 +104,113 @@ class TestRateLimitHandling(unittest.TestCase):
             
             self.assertGreaterEqual(sleep_time, expected_base + 5)
             self.assertLessEqual(sleep_time, expected_base + 15)
+
+    def test_calculate_seconds_negative_value(self):
+        """Test that calculate_seconds handles past reset times correctly"""
+        # Simulate a reset time that has already passed
+        past_reset_time = int(time.time()) - 10  # 10 seconds in the past
+        
+        # This should fail with the current implementation
+        sleep_time = tap_github.calculate_seconds(past_reset_time)
+        
+        # Sleep time should never be negative
+        self.assertGreaterEqual(sleep_time, 0, "Sleep time should never be negative")
+    
+    def test_calculate_seconds_with_future_reset_time(self):
+        """Test that calculate_seconds works correctly for future reset times"""
+        # Simulate a reset time 60 seconds in the future
+        future_reset_time = int(time.time()) + 60
+        
+        sleep_time = tap_github.calculate_seconds(future_reset_time)
+        
+        # Sleep time should be approximately 60 seconds (allowing for small timing differences)
+        self.assertGreaterEqual(sleep_time, 59)
+        self.assertLessEqual(sleep_time, 61)
+    
+    @mock.patch('tap_github.__init__.metrics')
+    @mock.patch('tap_github.__init__.session')
+    @mock.patch('time.sleep')
+    @mock.patch('time.time')
+    def test_rate_limit_retry_with_expired_reset_time(self, mock_time, mock_sleep, mock_session, mock_metrics):
+        """Test the actual scenario where reset time expires between retries"""
+        # Simulate the exact scenario from the logs:
+        # 1. First attempt at time T, reset time is T+194
+        # 2. After sleeping 194 seconds, we're at time T+194
+        # 3. Second attempt tries to calculate sleep time, but reset is now in the past
+        
+        # Mock the metrics timer context manager
+        mock_timer = mock.MagicMock()
+        mock_timer.tags = {}
+        mock_metrics.http_request_timer.return_value.__enter__.return_value = mock_timer
+        mock_metrics.http_request_timer.return_value.__exit__.return_value = None
+        
+        initial_time = 1000000.0
+        reset_time = initial_time + 194  # Reset in 194 seconds
+        
+        # Time progresses: initial -> after sleep
+        time_sequence = [
+            initial_time,      # First request
+            initial_time,      # Calculate seconds for first retry (194 seconds)
+            initial_time + 194.5,  # After sleeping, reset time has just passed
+            initial_time + 194.5   # Calculate seconds for second retry (-0.5 -> 0)
+        ]
+        mock_time.side_effect = time_sequence
+        
+        # First response: rate limited
+        first_response = MockResponse(
+            403,
+            json_data={'message': 'API rate limit exceeded'},
+            headers={
+                'X-RateLimit-Remaining': '0',
+                'X-RateLimit-Reset': str(int(reset_time))
+            }
+        )
+        
+        # Second response: still rate limited (this would happen if reset hasn't actually cleared yet)
+        second_response = MockResponse(
+            403,
+            json_data={'message': 'API rate limit exceeded'},
+            headers={
+                'X-RateLimit-Remaining': '0',
+                'X-RateLimit-Reset': str(int(reset_time))  # Same reset time
+            }
+        )
+        
+        # Third response: success
+        success_response = MockResponse(200, json_data={'data': 'success'})
+        
+        mock_session.request.side_effect = [first_response, second_response, success_response]
+        
+        # This should not raise ValueError anymore
+        result = tap_github.authed_get('test', 'http://test.com', {})
+        
+        # Verify sleep was called twice
+        self.assertEqual(mock_sleep.call_count, 2)
+        
+        # First sleep should be ~194 seconds
+        first_sleep_call = mock_sleep.call_args_list[0][0][0]
+        self.assertEqual(first_sleep_call, 194)
+        
+        # Second sleep should be 0 (not negative!)
+        second_sleep_call = mock_sleep.call_args_list[1][0][0]
+        self.assertEqual(second_sleep_call, 0)
+        
+        # With the old code, this would be negative
+        self.assertGreaterEqual(second_sleep_call, 0, "Sleep time must not be negative")
+    
+    def test_negative_sleep_would_have_caused_error(self):
+        """Test that the old code would have caused ValueError with negative sleep"""
+        # This test documents the exact error that would occur without our fix
+        past_reset_time = int(time.time()) - 1  # 1 second in the past
+        
+        # Without our fix, this would return -1
+        sleep_time = tap_github.calculate_seconds(past_reset_time)
+        
+        # Our fix ensures this is 0, not -1
+        self.assertEqual(sleep_time, 0)
+        
+        # Document what would happen without the fix
+        if sleep_time < 0:
+            with self.assertRaises(ValueError) as context:
+                time.sleep(sleep_time)
+            self.assertIn("sleep length must be non-negative", str(context.exception))
