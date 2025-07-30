@@ -20,6 +20,7 @@ import io
 import zipfile
 import xml.etree.ElementTree as ET
 import urllib.parse
+from datetime import datetime, timedelta
 from .utils import camel_to_snake_dict
 
 DEBUG = False
@@ -897,7 +898,6 @@ def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
     
     # Calculate 27 days ago in ISO format
     # Note: Using 27 days instead of 28 because team-level API has stricter date limits
-    from datetime import datetime, timedelta
     since_date = (datetime.now() - timedelta(days=27)).strftime('%Y-%m-%dT00:00:00Z')
     
     def process_copilot_metrics(metrics_data, team_slug_value):
@@ -1717,7 +1717,19 @@ def get_all_workflow_runs(schemas, repo_path, state, mdata, start_date):
 
     with metrics.record_counter(stream_name) as counter:
         try:
-            url = '{}repos/{}/actions/runs?per_page=100'.format(api_url, repo_path)
+            # Use the created parameter to filter workflow runs server-side
+            # Look back 4 weeks before the bookmark to catch runs that were created earlier but updated recently
+            if bookmark_value:
+                bookmark_datetime = singer.utils.strptime_to_utc(bookmark_value).replace(tzinfo=None)
+                created_after = bookmark_datetime - timedelta(weeks=4)
+                created_after_str = created_after.strftime('%Y-%m-%dT%H:%M:%SZ')
+                # GitHub API expects created parameter in format: created:>YYYY-MM-DDTHH:MM:SSZ
+                url = '{}repos/{}/actions/runs?per_page=100&created=>{}'.format(api_url, repo_path, created_after_str)
+                logger.info(f"Fetching workflow runs created after {created_after_str} (4 weeks before bookmark {bookmark_value})")
+            else:
+                url = '{}repos/{}/actions/runs?per_page=100'.format(api_url, repo_path)
+                logger.info(f"Fetching all workflow runs")
+                
             for response in authed_get_all_pages(stream_name,url):
                 response_json = response.json()
                 workflow_runs = response_json['workflow_runs']
