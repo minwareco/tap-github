@@ -2950,6 +2950,27 @@ def write_schema(stream_id, stream_schema, stream_key_properties):
         schema_cache[stream_id] = True
     return None
 
+def filter_streams_for_onboarding(selected_stream_ids, is_onboarding_complete):
+    """
+    Filter out workflow-related streams during onboarding to speed up initial ingests.
+    
+    Args:
+        selected_stream_ids (list): List of stream IDs that were selected
+        is_onboarding_complete (bool): Whether the org has completed onboarding
+        
+    Returns:
+        tuple: (filtered_stream_ids, filtered_count) where filtered_count is the number of streams removed
+    """
+    if is_onboarding_complete:
+        return selected_stream_ids, 0
+    
+    workflow_streams = {'workflows', 'workflow_runs', 'workflow_run_jobs'}
+    original_count = len(selected_stream_ids)
+    filtered_stream_ids = [s for s in selected_stream_ids if s not in workflow_streams]
+    filtered_count = original_count - len(filtered_stream_ids)
+    
+    return filtered_stream_ids, filtered_count
+
 def do_sync(config, state, catalog):
     global process_globals
     global code_coverage_artifact_name
@@ -2986,6 +3007,12 @@ def do_sync(config, state, catalog):
     # get selected streams, make sure stream dependencies are met
     selected_stream_ids = get_selected_streams(catalog)
     validate_dependencies(selected_stream_ids)
+
+    # Skip workflow streams during onboarding to speed up initial ingests
+    is_onboarding_complete = config.get('is_onboarding_complete', True)
+    selected_stream_ids, filtered_count = filter_streams_for_onboarding(selected_stream_ids, is_onboarding_complete)
+    if filtered_count > 0:
+        logger.info(f"Onboarding mode: skipped {filtered_count} workflow streams to speed up initial ingest")
 
     # Expand */* into the full list of orgs (e.g minwareco/*, otherorg/*)
     if config['repository'] == '*/*':
