@@ -175,6 +175,7 @@ ERROR_CODE_EXCEPTION_MAPPING = {
     }
 }
 
+process_globals = True
 code_coverage_artifact_name = 'test-coverage'
 
 
@@ -2857,11 +2858,16 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
         counter.increment()
     return state
 
-def get_selected_streams(catalog):
+def get_selected_streams(catalog, process_globals=None):
     '''
     Gets selected streams.  Checks schema's 'selected'
     first -- and then checks metadata, looking for an empty
-    breadcrumb and mdata with a 'selected' entry
+    breadcrumb and mdata with a 'selected' entry.
+    
+    Filters streams based on process_globals setting:
+    - process_globals='only': Only returns global streams
+    - process_globals=False: Filters out all global streams  
+    - process_globals=True: Returns all selected streams
     '''
     selected_streams = []
     for stream in catalog['streams']:
@@ -2873,6 +2879,17 @@ def get_selected_streams(catalog):
                 # stream metadata will have empty breadcrumb
                 if not entry['breadcrumb'] and entry['metadata'].get('selected',None):
                     selected_streams.append(stream['tap_stream_id'])
+
+    # Filter streams based on process_globals setting
+    global_streams = {'teams', 'copilot_usage', 'issue_types', 'projects', 'projects_v2', 'projects_v2_issues'}
+    
+    if process_globals == 'only':
+        # Only select global streams
+        selected_streams = [stream for stream in selected_streams if stream in global_streams]
+    elif process_globals == False:
+        # Filter out all global streams
+        selected_streams = [stream for stream in selected_streams if stream not in global_streams]
+    # When process_globals == True, return all selected streams
 
     return selected_streams
 
@@ -2950,12 +2967,18 @@ def filter_streams_for_onboarding(selected_stream_ids, is_onboarding_complete):
     return filtered_stream_ids, filtered_count
 
 def do_sync(config, state, catalog):
+    global process_globals
     global code_coverage_artifact_name
     global api_url
     global graphql_url
     global fetch_forks
 
+    logger.info(f'config: {json.dumps(config)}')
     start_date = config['start_date'] if 'start_date' in config else None
+
+    # optionally override the default for processing global stream data (e.g. teams)
+    if 'process_globals' in config:
+        process_globals = config['process_globals']
 
     # optionally override the default code coverage artifact name
     if 'code_coverage_artifact_name' in config:
@@ -2972,10 +2995,12 @@ def do_sync(config, state, catalog):
         graphql_url = config['graphql_url']
         logger.info('Using Github GraphQL URL {}'.format(graphql_url))
 
+    logger.info('Process globals = {}'.format(str(process_globals)))
+
     fetch_forks = config.get('fetch_forks', True)
 
     # get selected streams, make sure stream dependencies are met
-    selected_stream_ids = get_selected_streams(catalog)
+    selected_stream_ids = get_selected_streams(catalog, process_globals)
     validate_dependencies(selected_stream_ids)
 
     # Skip workflow streams during onboarding to speed up initial ingests
@@ -3046,9 +3071,9 @@ def do_sync(config, state, catalog):
         org = repo.split('/')[0]
         access_token = set_auth_headers(config, org)
 
-        # Skip repository validation for the empty globals repository
+        # Skip repository validation for the dummy globals repository
         if repo.endswith('/__minware_globals__'):
-            logger.info("Processing globals-only")
+            logger.info("Processing globals-only dummy repository")
         elif 'skip_unavailable' in config and bool(config['skip_unavailable']):
             try:
                 get_repo_metadata(repo)
@@ -3128,7 +3153,7 @@ def do_sync(config, state, catalog):
 def main():
     global latest_response
     global latest_request
-
+    
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
     if args.config:
         if 'access_token' in args.config:
