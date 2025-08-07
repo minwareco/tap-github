@@ -2861,9 +2861,7 @@ def get_selected_streams(catalog):
     '''
     Gets selected streams.  Checks schema's 'selected'
     first -- and then checks metadata, looking for an empty
-    breadcrumb and mdata with a 'selected' entry.
-    
-    The catalog itself now controls which streams to process.
+    breadcrumb and mdata with a 'selected' entry
     '''
     selected_streams = []
     for stream in catalog['streams']:
@@ -2957,7 +2955,6 @@ def do_sync(config, state, catalog):
     global graphql_url
     global fetch_forks
 
-    logger.info(f'config: {json.dumps(config)}')
     start_date = config['start_date'] if 'start_date' in config else None
 
     # optionally override the default code coverage artifact name
@@ -3131,8 +3128,7 @@ def do_sync(config, state, catalog):
 def main():
     global latest_response
     global latest_request
-    logger.info('Starting tap-github')
-    
+
     args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
     if args.config:
         if 'access_token' in args.config:
@@ -3141,7 +3137,7 @@ def main():
             logger.addToken(args.config['hmac_token'])
         if 'app_pem' in args.config:
             logger.addToken(args.config['app_pem'])
-    logger.info('args: %s', args.config['process_globals'])
+
     try:
         if args.discover:
             do_discover(args.config)
