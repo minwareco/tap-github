@@ -189,6 +189,17 @@ def set_has_org_cache(org, stream_name, value = True):
     key = '{}.{}'.format(org, stream_name)
     org_cache_flags[key] = value
 
+def should_skip_global_stream(org, stream_name):
+    """
+    Helper function to determine if a global stream should be skipped.
+    
+    Returns True if the stream should be skipped based on process_globals setting:
+    - If process_globals is False, skip the stream
+    - If process_globals is 'only', never skip (always process globals)
+    - If process_globals is True, skip if already cached for this org
+    """
+    return (process_globals == False or (process_globals != 'only' and has_org_cache(org, stream_name)))
+
 def utf8_hook(data, typ, schema):
     if typ != 'string':
         return data
@@ -776,7 +787,7 @@ def get_all_teams(schemas, repo_path, state, mdata, _start_date):
     org = repo_path.split('/')[0]
 
     # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, 'teams'):
+    if should_skip_global_stream(org, 'teams'):
         return state
 
     # for user accounts, a GitHub app cannot access teams so we just skip the import
@@ -887,7 +898,7 @@ def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
     org = repo_path.split('/')[0]
     
     # Only fetch this once per org (global data like teams)
-    if process_globals == False or has_org_cache(org, 'copilot_usage'):
+    if should_skip_global_stream(org, 'copilot_usage'):
         return state
     
     # Skip for user accounts - copilot metrics are only for orgs
@@ -1126,7 +1137,7 @@ def get_all_issue_types(schemas, repo_path, state, mdata, _start_date):
     org = repo_path.split('/')[0]
     
     # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, 'issue_types'):
+    if should_skip_global_stream(org, 'issue_types'):
         return state
     
     set_has_org_cache(org, 'issue_types')
@@ -1206,7 +1217,7 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
     if len(repoSplit) == 1:
         orgLevel = True
         # Load global projects -- only fetch this once per org
-        if process_globals == False or has_org_cache(org, 'projects'):
+        if should_skip_global_stream(org, 'projects'):
             return state
     else:
         state = get_all_projects(schemas, org, state, mdata, start_date)
@@ -1391,7 +1402,7 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
     acctObjectName = 'user' if getAccountType(org) == 'USER' else 'organization'
 
     # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, stream_name):
+    if should_skip_global_stream(org, stream_name):
         return state
 
     set_has_org_cache(org, stream_name, True)
@@ -1462,7 +1473,7 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
     acctObjectName = 'user' if getAccountType(org) == 'USER' else 'organization'
 
     # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, stream_name):
+    if should_skip_global_stream(org, stream_name):
         return state
 
     set_has_org_cache(org, stream_name, True)
@@ -2891,11 +2902,13 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
         counter.increment()
     return state
 
-def get_selected_streams(catalog):
+def get_selected_streams(catalog, process_globals=None):
     '''
     Gets selected streams.  Checks schema's 'selected'
     first -- and then checks metadata, looking for an empty
-    breadcrumb and mdata with a 'selected' entry
+    breadcrumb and mdata with a 'selected' entry.
+    
+    If process_globals is 'only', only returns global streams.
     '''
     selected_streams = []
     for stream in catalog['streams']:
@@ -2907,6 +2920,11 @@ def get_selected_streams(catalog):
                 # stream metadata will have empty breadcrumb
                 if not entry['breadcrumb'] and entry['metadata'].get('selected',None):
                     selected_streams.append(stream['tap_stream_id'])
+
+    # Filter to only global streams when process_globals is 'only'
+    if process_globals == 'only':
+        global_streams = {'teams', 'copilot_usage', 'issue_types', 'projects', 'projects_v2', 'projects_v2_issues'}
+        selected_streams = [stream for stream in selected_streams if stream in global_streams]
 
     return selected_streams
 
@@ -3017,7 +3035,7 @@ def do_sync(config, state, catalog):
     fetch_forks = config.get('fetch_forks', True)
 
     # get selected streams, make sure stream dependencies are met
-    selected_stream_ids = get_selected_streams(catalog)
+    selected_stream_ids = get_selected_streams(catalog, process_globals)
     validate_dependencies(selected_stream_ids)
 
     # Skip workflow streams during onboarding to speed up initial ingests
@@ -3088,7 +3106,10 @@ def do_sync(config, state, catalog):
         org = repo.split('/')[0]
         access_token = set_auth_headers(config, org)
 
-        if 'skip_unavailable' in config and bool(config['skip_unavailable']):
+        # Skip repository validation for the dummy globals repository
+        if repo.endswith('/__minware_globals__'):
+            logger.info("Processing globals-only dummy repository")
+        elif 'skip_unavailable' in config and bool(config['skip_unavailable']):
             try:
                 get_repo_metadata(repo)
             except:
