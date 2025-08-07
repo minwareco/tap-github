@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 import tap_github
 
 class TestProcessGlobalsOnly(unittest.TestCase):
-    """Test the process_globals='only' functionality"""
+    """Test the process_globals functionality with different values"""
 
     @patch('tap_github.GitLocal')
     @patch('tap_github.translate_state')
@@ -89,6 +89,37 @@ class TestProcessGlobalsOnly(unittest.TestCase):
         finally:
             # Restore original sync functions
             tap_github.SYNC_FUNCTIONS = original_sync_functions
+
+    def test_get_selected_streams_filtering(self):
+        """Test that get_selected_streams filters streams correctly based on process_globals"""
+        
+        # Create a test catalog with mixed streams
+        catalog = {
+            'streams': [
+                {'tap_stream_id': 'repositories', 'schema': {'selected': True}, 'metadata': []},
+                {'tap_stream_id': 'teams', 'schema': {'selected': True}, 'metadata': []},
+                {'tap_stream_id': 'commits', 'schema': {'selected': True}, 'metadata': []},
+                {'tap_stream_id': 'copilot_usage', 'schema': {'selected': True}, 'metadata': []},
+                {'tap_stream_id': 'issues', 'schema': {'selected': True}, 'metadata': []},
+                {'tap_stream_id': 'projects', 'schema': {'selected': True}, 'metadata': []},
+            ]
+        }
+        
+        # Test process_globals = True (should return all streams)
+        result = tap_github.get_selected_streams(catalog, True)
+        expected = ['repositories', 'teams', 'commits', 'copilot_usage', 'issues', 'projects']
+        self.assertEqual(sorted(result), sorted(expected))
+        
+        # Test process_globals = False (should filter out global streams)
+        result = tap_github.get_selected_streams(catalog, False)
+        expected = ['repositories', 'commits', 'issues']  # non-global streams only
+        self.assertEqual(sorted(result), sorted(expected))
+        
+        # Test process_globals = 'only' (should return only global streams)
+        result = tap_github.get_selected_streams(catalog, 'only')
+        expected = ['teams', 'copilot_usage', 'projects']  # global streams only
+        self.assertEqual(sorted(result), sorted(expected))
+    
 
 if __name__ == '__main__':
     unittest.main()
