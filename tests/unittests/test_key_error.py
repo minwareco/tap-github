@@ -14,16 +14,13 @@ def get_response(json):
     yield Mockresponse(resp=json)
 
 @mock.patch('time.sleep')
-@mock.patch("tap_github.__init__.has_org_cache")
-@mock.patch("tap_github.__init__.set_has_org_cache")
 @mock.patch("tap_github.__init__.getAccountType")
 @mock.patch("tap_github.__init__.authed_get_all_pages")
 class TestKeyErrorSlug(unittest.TestCase):
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_selected_slug_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+    def test_slug_sub_stream_selected_slug_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_sleep):
         mocked_account_type.return_value = 'ORG'
-        mocked_has_cache.return_value = False
         tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 
@@ -47,9 +44,8 @@ class TestKeyErrorSlug(unittest.TestCase):
         self.assertEqual(mocked_team_members.call_count, 1)
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_not_selected_slug_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+    def test_slug_sub_stream_not_selected_slug_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_sleep):
         mocked_account_type.return_value = 'ORG'
-        mocked_has_cache.return_value = False
         tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 
@@ -73,9 +69,8 @@ class TestKeyErrorSlug(unittest.TestCase):
         self.assertEqual(mocked_team_members.call_count, 0)
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_selected_slug_not_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+    def test_slug_sub_stream_selected_slug_not_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_sleep):
         mocked_account_type.return_value = 'ORG'
-        mocked_has_cache.return_value = False
         tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 
@@ -99,9 +94,8 @@ class TestKeyErrorSlug(unittest.TestCase):
         self.assertEqual(mocked_team_members.call_count, 1)
 
     @mock.patch("tap_github.__init__.get_all_team_members")
-    def test_slug_sub_stream_not_selected_slug_not_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_set_cache, mocked_has_cache, mocked_sleep):
+    def test_slug_sub_stream_not_selected_slug_not_selected(self, mocked_team_members, mocked_request, mocked_account_type, mocked_sleep):
         mocked_account_type.return_value = 'ORG'
-        mocked_has_cache.return_value = False
         tap_github.process_globals = True
         json = {"key": "value", "slug": "team-slug"}
 

@@ -175,19 +175,9 @@ ERROR_CODE_EXCEPTION_MAPPING = {
     }
 }
 
-org_cache_flags = {}
 process_globals = True
 code_coverage_artifact_name = 'test-coverage'
 
-def has_org_cache(org, stream_name):
-    global org_cache_flags
-    key = '{}.{}'.format(org, stream_name)
-    return org_cache_flags.get(key) == True
-
-def set_has_org_cache(org, stream_name, value = True):
-    global org_cache_flags
-    key = '{}.{}'.format(org, stream_name)
-    org_cache_flags[key] = value
 
 def utf8_hook(data, typ, schema):
     if typ != 'string':
@@ -775,15 +765,11 @@ def do_discover(config):
 def get_all_teams(schemas, repo_path, state, mdata, _start_date):
     org = repo_path.split('/')[0]
 
-    # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, 'teams'):
-        return state
 
     # for user accounts, a GitHub app cannot access teams so we just skip the import
     if getAccountType(org) == 'USER':
         return state
 
-    set_has_org_cache(org, 'teams')
 
     with metrics.record_counter('teams') as counter:
         try:
@@ -886,15 +872,11 @@ def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
     """
     org = repo_path.split('/')[0]
     
-    # Only fetch this once per org (global data like teams)
-    if process_globals == False or has_org_cache(org, 'copilot_usage'):
-        return state
     
     # Skip for user accounts - copilot metrics are only for orgs
     if getAccountType(org) == 'USER':
         return state
     
-    set_has_org_cache(org, 'copilot_usage')
     
     # Calculate 27 days ago in ISO format
     # Note: Using 27 days instead of 28 because team-level API has stricter date limits
@@ -1125,11 +1107,7 @@ def get_all_issue_types(schemas, repo_path, state, mdata, _start_date):
     # https://docs.github.com/en/rest/issues/issue-types
     org = repo_path.split('/')[0]
     
-    # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, 'issue_types'):
-        return state
     
-    set_has_org_cache(org, 'issue_types')
     
     with metrics.record_counter('issue_types') as counter:
         try:
@@ -1205,9 +1183,6 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
     orgLevel = False
     if len(repoSplit) == 1:
         orgLevel = True
-        # Load global projects -- only fetch this once per org
-        if process_globals == False or has_org_cache(org, 'projects'):
-            return state
     else:
         state = get_all_projects(schemas, org, state, mdata, start_date)
 
@@ -1390,11 +1365,7 @@ def get_all_projects_v2(schemas, repo_path, state, mdata, _start_date):
     org = repo_path.split('/')[0]
     acctObjectName = 'user' if getAccountType(org) == 'USER' else 'organization'
 
-    # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, stream_name):
-        return state
 
-    set_has_org_cache(org, stream_name, True)
 
     extraction_time = singer.utils.now()
 
@@ -1461,11 +1432,7 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
     org = repo_path.split('/')[0]
     acctObjectName = 'user' if getAccountType(org) == 'USER' else 'organization'
 
-    # Only fetch this once per org
-    if process_globals == False or has_org_cache(org, stream_name):
-        return state
 
-    set_has_org_cache(org, stream_name, True)
 
     extraction_time = singer.utils.now()
 
@@ -2891,11 +2858,16 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
         counter.increment()
     return state
 
-def get_selected_streams(catalog):
+def get_selected_streams(catalog, process_globals=None):
     '''
     Gets selected streams.  Checks schema's 'selected'
     first -- and then checks metadata, looking for an empty
-    breadcrumb and mdata with a 'selected' entry
+    breadcrumb and mdata with a 'selected' entry.
+    
+    Filters streams based on process_globals setting:
+    - process_globals='only': Only returns global streams
+    - process_globals=False: Filters out all global streams  
+    - process_globals=True: Returns all selected streams
     '''
     selected_streams = []
     for stream in catalog['streams']:
@@ -2907,6 +2879,17 @@ def get_selected_streams(catalog):
                 # stream metadata will have empty breadcrumb
                 if not entry['breadcrumb'] and entry['metadata'].get('selected',None):
                     selected_streams.append(stream['tap_stream_id'])
+
+    # Filter streams based on process_globals setting
+    global_streams = {'teams', 'copilot_usage', 'issue_types', 'projects', 'projects_v2', 'projects_v2_issues'}
+    
+    if process_globals == 'only':
+        # Only select global streams
+        selected_streams = [stream for stream in selected_streams if stream in global_streams]
+    elif process_globals == False:
+        # Filter out all global streams
+        selected_streams = [stream for stream in selected_streams if stream not in global_streams]
+    # When process_globals == True, return all selected streams
 
     return selected_streams
 
@@ -3017,7 +3000,7 @@ def do_sync(config, state, catalog):
     fetch_forks = config.get('fetch_forks', True)
 
     # get selected streams, make sure stream dependencies are met
-    selected_stream_ids = get_selected_streams(catalog)
+    selected_stream_ids = get_selected_streams(catalog, process_globals)
     validate_dependencies(selected_stream_ids)
 
     # Skip workflow streams during onboarding to speed up initial ingests
@@ -3088,7 +3071,10 @@ def do_sync(config, state, catalog):
         org = repo.split('/')[0]
         access_token = set_auth_headers(config, org)
 
-        if 'skip_unavailable' in config and bool(config['skip_unavailable']):
+        # Skip repository validation for the dummy globals repository
+        if repo.endswith('/__minware_globals__'):
+            logger.info("Processing globals-only dummy repository")
+        elif 'skip_unavailable' in config and bool(config['skip_unavailable']):
             try:
                 get_repo_metadata(repo)
             except:
