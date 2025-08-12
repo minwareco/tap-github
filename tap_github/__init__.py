@@ -2887,8 +2887,15 @@ def get_selected_streams(catalog, process_globals=None):
         # Only select global streams
         selected_streams = [stream for stream in selected_streams if stream in global_streams]
     elif process_globals == False:
-        # Filter out all global streams
-        selected_streams = [stream for stream in selected_streams if stream not in global_streams]
+        # Filter out all global streams and their sub-streams
+        streams_to_filter = set(global_streams)
+        
+        # Also filter out sub-streams of global streams
+        for global_stream in global_streams:
+            if global_stream in SUB_STREAMS:
+                streams_to_filter.update(SUB_STREAMS[global_stream])
+        
+        selected_streams = [stream for stream in selected_streams if stream not in streams_to_filter]
     # When process_globals == True, return all selected streams
 
     return selected_streams
