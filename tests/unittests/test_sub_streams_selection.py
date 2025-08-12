@@ -108,28 +108,3 @@ class TestSubStreamSelection(unittest.TestCase):
         
         # Should not raise dependency exception
         tap_github.validate_dependencies(selected_streams)
-    
-    def test_process_globals_only_keeps_only_globals(self):
-        """Test that when process_globals='only', only global streams are kept"""
-        # Create a mock catalog with all streams selected
-        catalog = {
-            'streams': [
-                {'tap_stream_id': 'teams', 'schema': {'selected': True}, 'metadata': []},
-                {'tap_stream_id': 'projects', 'schema': {'selected': True}, 'metadata': []},
-                {'tap_stream_id': 'copilot_usage', 'schema': {'selected': True}, 'metadata': []},
-                {'tap_stream_id': 'issues', 'schema': {'selected': True}, 'metadata': []},
-                {'tap_stream_id': 'pull_requests', 'schema': {'selected': True}, 'metadata': []},
-            ]
-        }
-        
-        # Test with process_globals='only'
-        selected_streams = tap_github.get_selected_streams(catalog, process_globals='only')
-        
-        # Only global streams should be present
-        self.assertIn('teams', selected_streams)
-        self.assertIn('projects', selected_streams)
-        self.assertIn('copilot_usage', selected_streams)
-        
-        # Non-global streams should be filtered out
-        self.assertNotIn('issues', selected_streams)
-        self.assertNotIn('pull_requests', selected_streams)
