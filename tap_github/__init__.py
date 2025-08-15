@@ -251,25 +251,25 @@ def get_bookmark(state, repo, stream_name, bookmark_key, start_date=None):
 
 def is_rate_limit_error(resp, response_json):
     """Check if any response indicates a rate limit error (works for REST and GraphQL)"""
+    # 429 is always a rate limit
     if resp.status_code == 429:
         return True
     
-    if resp.status_code != 403 and resp.status_code != 200:
-        return False
-    
-    # Check for rate limit headers first (works for both REST and GraphQL)
+    # Check headers for any status code (handles GraphQL 200s and REST)
     if resp.headers.get('X-RateLimit-Remaining') == '0':
         return True
     
-    # Check for rate limit messages in response
-    message = response_json.get('message', '').lower()
-    rate_limit_indicators = [
-        'api rate limit exceeded',
-        'secondary rate limit triggered',
-        'you have exceeded a secondary rate limit'
-    ]
+    # Check message only for 403 responses
+    if resp.status_code == 403:
+        message = response_json.get('message', '').lower()
+        rate_limit_indicators = [
+            'api rate limit exceeded',
+            'secondary rate limit triggered',
+            'you have exceeded a secondary rate limit'
+        ]
+        return any(indicator in message for indicator in rate_limit_indicators)
     
-    return any(indicator in message for indicator in rate_limit_indicators)
+    return False
 
 def raise_for_error(resp, source, url):
     error_code = resp.status_code
