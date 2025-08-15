@@ -43,6 +43,19 @@ class TestRateLimitHandling(unittest.TestCase):
         resp = MockResponse(401, headers={'X-RateLimit-Remaining': '0'})
         self.assertFalse(tap_github.is_rate_limit_error(resp, {}))
 
+    def test_graphql_rate_limit_with_200_status(self):
+        """Test GraphQL rate limit detection with HTTP 200 and X-RateLimit-Remaining: 0"""
+        # GraphQL returns 200 even for rate limits
+        resp = MockResponse(200, headers={'X-RateLimit-Remaining': '0'})
+        response_json = {'errors': [{'type': 'RATE_LIMITED', 'message': 'API rate limit exceeded'}]}
+        self.assertTrue(tap_github.is_rate_limit_error(resp, response_json))
+
+    def test_graphql_success_with_remaining_requests(self):
+        """Test that GraphQL 200 responses with remaining requests are not detected as rate limits"""
+        resp = MockResponse(200, headers={'X-RateLimit-Remaining': '5000'})
+        response_json = {'data': {'repository': {'name': 'test'}}}
+        self.assertFalse(tap_github.is_rate_limit_error(resp, response_json))
+
     @mock.patch('time.sleep')
     def test_rate_throttling_secondary_rate_limit(self, mocked_sleep):
         """Test that rate_throttling no longer handles reactive rate limiting"""
