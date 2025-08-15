@@ -250,11 +250,14 @@ def get_bookmark(state, repo, stream_name, bookmark_key, start_date=None):
     return None
 
 def is_rate_limit_error(resp, response_json):
-    """Check if a 403 error is actually a rate limit error"""
-    if resp.status_code != 403:
+    """Check if any response indicates a rate limit error (works for REST and GraphQL)"""
+    if resp.status_code == 429:
+        return True
+    
+    if resp.status_code != 403 and resp.status_code != 200:
         return False
     
-    # Check for rate limit headers
+    # Check for rate limit headers first (works for both REST and GraphQL)
     if resp.headers.get('X-RateLimit-Remaining') == '0':
         return True
     
@@ -336,6 +339,10 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
             try:
                 latest_request = { 'method': overrideMethod, 'url': url, 'data': data}
                 resp = session.request(method=overrideMethod, url=url, data=data)
+                try:
+                    response_json = resp.json()
+                except Exception:
+                    response_json = {}
                 latest_response = resp
                 # If there is another 401 error right after refreshing, then don't try again. Otherwise,
                 # get a new installation token for the github app and try again in case there is a
@@ -362,15 +369,9 @@ def authed_get(source, url, headers={}, overrideMethod='get', data=None):
                                 'and then retrying url {}.'.format(resp.status_code, RETRY_WAIT, url))
                             retry_time += RETRY_WAIT
                             time.sleep(RETRY_WAIT)
-                    elif resp.status_code in [403, 429]:
-                        # Check if this is a rate limit error that we can retry
-                        try:
-                            response_json = resp.json()
-                        except Exception:
-                            response_json = {}
-                        
-                        # For 429, always a rate limit. For 403, check if it's rate limit vs auth error
-                        if (resp.status_code == 429 or is_rate_limit_error(resp, response_json)) and rate_limit_retry_count < max_rate_limit_retries:
+                    elif is_rate_limit_error(resp, response_json):
+                        # This is a rate limit error that we can retry
+                        if rate_limit_retry_count < max_rate_limit_retries:
                             rate_limit_retry_count += 1
                             
                             # Follow GitHub's rate limiting guidance
