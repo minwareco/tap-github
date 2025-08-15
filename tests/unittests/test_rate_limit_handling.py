@@ -39,9 +39,14 @@ class TestRateLimitHandling(unittest.TestCase):
         self.assertFalse(tap_github.is_rate_limit_error(resp, response_json))
 
     def test_is_not_rate_limit_error_different_status(self):
-        """Test that non-403 errors are not detected as rate limits"""
-        resp = MockResponse(401, headers={'X-RateLimit-Remaining': '0'})
+        """Test that non-rate-limit errors are not detected as rate limits"""
+        resp = MockResponse(401, headers={'X-RateLimit-Remaining': '100'})
         self.assertFalse(tap_github.is_rate_limit_error(resp, {}))
+
+    def test_rate_limit_headers_override_status_code(self):
+        """Test that rate limit headers are respected regardless of status code"""
+        resp = MockResponse(401, headers={'X-RateLimit-Remaining': '0'})
+        self.assertTrue(tap_github.is_rate_limit_error(resp, {}))
 
     def test_graphql_rate_limit_with_200_status(self):
         """Test GraphQL rate limit detection with HTTP 200 and X-RateLimit-Remaining: 0"""
@@ -55,6 +60,18 @@ class TestRateLimitHandling(unittest.TestCase):
         resp = MockResponse(200, headers={'X-RateLimit-Remaining': '5000'})
         response_json = {'data': {'repository': {'name': 'test'}}}
         self.assertFalse(tap_github.is_rate_limit_error(resp, response_json))
+
+    def test_list_response_not_rate_limit(self):
+        """Test that list responses (like branches endpoint) are not detected as rate limits"""
+        resp = MockResponse(200, headers={'X-RateLimit-Remaining': '5000'})
+        response_json = [{'name': 'main', 'commit': {'sha': 'abc123'}}]
+        self.assertFalse(tap_github.is_rate_limit_error(resp, response_json))
+
+    def test_list_response_with_rate_limit_headers(self):
+        """Test that list responses with rate limit headers are detected as rate limits"""
+        resp = MockResponse(200, headers={'X-RateLimit-Remaining': '0'})
+        response_json = [{'name': 'main', 'commit': {'sha': 'abc123'}}]
+        self.assertTrue(tap_github.is_rate_limit_error(resp, response_json))
 
     @mock.patch('time.sleep')
     def test_rate_throttling_secondary_rate_limit(self, mocked_sleep):
