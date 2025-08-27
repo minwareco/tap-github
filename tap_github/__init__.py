@@ -1182,7 +1182,12 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
     # So there are both repo projects and org projects (not tied to a repo). Every time this is
     # called, also attempt to fetch org projects, but only do that once.
     orgLevel = False
-    if len(repoSplit) == 1:
+    
+    # For the dummy globals repository, fetch only org-level projects
+    # there are no actual repos for an org with a __minware_globals__ repo
+    if repo_path.endswith('/__minware_globals__'):
+        orgLevel = True
+    elif len(repoSplit) == 1:
         orgLevel = True
     else:
         state = get_all_projects(schemas, org, state, mdata, start_date)
@@ -1197,7 +1202,7 @@ def get_all_projects(schemas, repo_path, state, mdata, start_date):
         #pylint: disable=too-many-nested-blocks
         try:
             if orgLevel:
-                projectUri = '{}orgs/{}/projects?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path)
+                projectUri = '{}orgs/{}/projects?per_page=100&sort=created_at&direction=desc'.format(api_url, org)
             else:
                 projectUri = '{}repos/{}/projects?per_page=100&sort=created_at&direction=desc'.format(api_url, repo_path)
 
@@ -2893,6 +2898,9 @@ def get_selected_streams(catalog, process_globals=None):
                 streams_to_filter.update(SUB_STREAMS[global_stream])
         
         selected_streams = [stream for stream in selected_streams if stream not in streams_to_filter]
+    elif process_globals == "only":
+        # Only include global streams
+        selected_streams = [stream for stream in selected_streams if stream in global_streams]
     # When process_globals == True, return all selected streams
 
     return selected_streams
