@@ -917,9 +917,9 @@ def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
         return state
     
     
-    # Calculate 27 days ago in ISO format
-    # Note: Using 27 days instead of 28 because team-level API has stricter date limits
-    since_date = (datetime.now() - timedelta(days=27)).strftime('%Y-%m-%dT00:00:00Z')
+    # Calculate 99 days ago in ISO format
+    # Note: Using 99 days instead of 100 because team-level API has stricter date limits
+    since_date = (datetime.now() - timedelta(days=99)).strftime('%Y-%m-%dT00:00:00Z')
     
     def process_copilot_metrics(metrics_data, team_slug_value):
         """Helper function to process and write copilot metrics data"""
