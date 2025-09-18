@@ -82,6 +82,44 @@ KEY_PROPERTIES = {
     'workflow_run_jobs': ['id']
 }
 
+GLOBAL_STREAMS = {
+    'teams',
+    'copilot_usage',
+    'issue_types',
+    'projects',
+    'projects_v2',
+    'projects_v2_issues'
+}
+
+def prevent_duplicate_org_execution(func):
+    """
+    Wrapper to prevent GLOBAL_STREAMS functions from running multiple times for the same organization.
+    If two repo_paths start with the same org name, the function will return state without processing.
+    Each function maintains its own set of processed organizations.
+    """
+    processed_orgs = set()
+    
+    def wrapper(schemas, repo_path, state, mdata, *args, **kwargs):
+        org = repo_path.split('/')[0]
+        
+        if org in processed_orgs:
+            logger.info(
+                "%s already called for org %s, skipping duplicate execution",
+                getattr(func, '__name__', repr(func)),
+                org,
+            )
+            return state
+        
+        logger.info(
+            "%s being called for org %s",
+            getattr(func, '__name__', repr(func)),
+            org,
+        )
+        processed_orgs.add(org)
+        return func(schemas, repo_path, state, mdata, *args, **kwargs)
+    
+    return wrapper
+    
 class GithubException(Exception):
     server_response = None
     def __init__(self, message, server_response=None):
@@ -2886,21 +2924,20 @@ def get_selected_streams(catalog, process_globals=None):
                     selected_streams.append(stream['tap_stream_id'])
 
     # Filter streams based on process_globals setting
-    global_streams = {'teams', 'copilot_usage', 'issue_types', 'projects', 'projects_v2', 'projects_v2_issues'}
     
     if process_globals == False:
         # Filter out all global streams and their sub-streams
-        streams_to_filter = set(global_streams)
+        streams_to_filter = set(GLOBAL_STREAMS)
         
         # Also filter out sub-streams of global streams
-        for global_stream in global_streams:
+        for global_stream in GLOBAL_STREAMS:
             if global_stream in SUB_STREAMS:
                 streams_to_filter.update(SUB_STREAMS[global_stream])
         
         selected_streams = [stream for stream in selected_streams if stream not in streams_to_filter]
     elif process_globals == "only":
         # Only include global streams
-        selected_streams = [stream for stream in selected_streams if stream in global_streams]
+        selected_streams = [stream for stream in selected_streams if stream in GLOBAL_STREAMS]
     # When process_globals == True, return all selected streams
 
     return selected_streams
@@ -2940,6 +2977,11 @@ SYNC_FUNCTIONS = {
     'workflow_runs': get_all_workflow_runs,
     'deployments': get_all_deployments,
 }
+
+# Wrap GLOBAL_STREAMS functions in SYNC_FUNCTIONS to prevent duplicate org execution
+for stream_name in GLOBAL_STREAMS:
+    if stream_name in SYNC_FUNCTIONS:
+        SYNC_FUNCTIONS[stream_name] = prevent_duplicate_org_execution(SYNC_FUNCTIONS[stream_name])
 
 SUB_STREAMS = {
     'pull_requests': ['reviews', 'review_comments'],
@@ -3124,8 +3166,22 @@ def do_sync(config, state, catalog):
                     if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
                         commits_only = stream_id == 'commit_files_meta'
                         stream_schemas = {stream_id: stream_schema}
+                        logger.info(
+                            'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)', 
+                            stream_id,
+                            repo,
+                            start_date,
+                            commits_only,
+                            selected_stream_ids
+                        )
                         state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only, selected_stream_ids)
                     else:
+                        logger.info(
+                            'SYNC_FUNCTIONS[%s] (%s, %s)', 
+                            stream_id,
+                            repo,
+                            start_date
+                        )
                         state = sync_func(stream_schema, repo, state, mdata, start_date)
 
                 # handle streams with sub streams
@@ -3142,9 +3198,23 @@ def do_sync(config, state, catalog):
 
                     # sync stream and its sub streams
                     if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
+                        logger.info(
+                            'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)', 
+                            stream_id,
+                            repo,
+                            start_date,
+                            commits_only,
+                            selected_stream_ids
+                        )
                         state = sync_func(stream_schemas, repo, state, mdata, start_date,
                             gitLocal, commits_only, selected_stream_ids)
                     else:
+                        logger.info(
+                            'SYNC_FUNCTIONS[%s] (%s, %s)', 
+                            stream_id,
+                            repo,
+                            start_date
+                        )
                         state = sync_func(stream_schemas, repo, state, mdata, start_date)
         # Write the state after each repo. There use to be a check for:
         #   stream_id != 'branches' and stream_id != 'pull_requests'
