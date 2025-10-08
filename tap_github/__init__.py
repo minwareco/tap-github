@@ -669,7 +669,6 @@ def refresh_app_token(pem=None, appid=None, org=None, installation_id=None):
     # Set HTTP authorization to JWT
     jwt = generate_jwt(pem, appid)
     session.headers.update({'authorization': 'Bearer ' + jwt})
-    logger.info(f'USING INSTALLATION ID {installation_id}')
 
     # TODO: REMOVE AFTER INSTALLATION_ID ROLLOUT
     if not installation_id:
@@ -707,8 +706,11 @@ def getAccountType(org):
     return accountTypeCache[org]
 
 def getReposForOrg(user_or_org):
+    global using_pat
     if getAccountType(user_or_org) == 'USER':
-        repos_url = f'{api_url}search/repositories?q=user:{user_or_org}+fork:true&per_page=100'
+        repos_url = f'{api_url}search/repositories?q=user:{user_or_org}+fork:true&per_page=100' \
+            if using_pat \
+            else f'{api_url}installation/repositories?per_page=100'
     else:
         repos_url = f'{api_url}orgs/{user_or_org}/repos?per_page=100'
 
@@ -722,6 +724,9 @@ def getReposForOrg(user_or_org):
             repos = json_response
             if repos_url.startswith(f'{api_url}search'):
                 repos = repos.get('items', [])
+
+            if repos_url.startswith(f'{api_url}installation/repositories'):
+                repos = repos.get('repositories', [])
      
             for repo in repos:
                 # Preserve the case used for the org name originally
