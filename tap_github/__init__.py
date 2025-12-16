@@ -1574,7 +1574,8 @@ def get_all_projects_v2_issues(schemas, repo_path, state, mdata, _start_date):
                     issue['projectV2'] = project
 
                     # squash the issue content object back into the root issue object
-                    issue.update(issue['content'])
+                    if issue['content'] is not None:
+                        issue.update(issue['content'])
 
                     # filter out field values which are empty. this will happen for v1 fields that we are
                     # not interested to absorb in this v2 stream
