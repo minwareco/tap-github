@@ -19,6 +19,14 @@ This tap:
 - Outputs the schema for each resource
 - Incrementally pulls data based on the input state
 
+## Development Notes
+
+### Environment Variables
+
+This tap requires the `UTILS_VERSION` environment variable to be set when installing from source. This variable specifies the version of `minware-singer-utils` to use.
+
+The GitHub Actions workflow (`.github/workflows/test.yml`) automatically fetches the latest version from the main branch of `minware-singer-utils` and sets it as an environment variable during CI/CD runs.
+
 ## Quick start
 
 1. Install
