@@ -23,12 +23,12 @@ jobs:
     
     - name: Get latest minware-singer-utils version
       id: get-utils-version
-      env:
-        GITHUB_TOKEN: ${{ secrets.MINWARE_GITHUB_TOKEN }}
       run: |
-        LATEST_COMMIT=$(git ls-remote https://$GITHUB_TOKEN@github.com/minwareco/minware-singer-utils.git refs/heads/main | cut -f1)
+        LATEST_COMMIT=$(gh api repos/minwareco/minware-singer-utils/commits/main --jq '.sha')
         echo "UTILS_VERSION=$LATEST_COMMIT" >> $GITHUB_ENV
         echo "Using minware-singer-utils version: $LATEST_COMMIT"
+      env:
+        GH_TOKEN: ${{ secrets.MINWARE_GITHUB_TOKEN }}
 
     - name: Install dependencies
       env:
