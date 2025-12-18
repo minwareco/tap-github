@@ -21,9 +21,19 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     
+    - name: Get latest minware-singer-utils version
+      id: get-utils-version
+      env:
+        GITHUB_TOKEN: ${{ secrets.MINWARE_GITHUB_TOKEN }}
+      run: |
+        LATEST_COMMIT=$(git ls-remote https://github.com/minwareco/minware-singer-utils.git HEAD | cut -f1)
+        echo "UTILS_VERSION=$LATEST_COMMIT" >> $GITHUB_ENV
+        echo "Using minware-singer-utils version: $LATEST_COMMIT"
+
     - name: Install dependencies
       env:
         GITHUB_TOKEN: ${{ secrets.MINWARE_GITHUB_TOKEN }}
+        UTILS_VERSION: ${{ env.UTILS_VERSION }}
       run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
