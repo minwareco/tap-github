@@ -819,7 +819,7 @@ def get_all_teams(schemas, repo_path, state, mdata, _start_date):
         try:
             for response in authed_get_all_pages(
                     'teams',
-                    '{}orgs/{}/teams?sort=created_at&direction=desc'.format(api_url, org)
+                    '{}orgs/{}/teams?sort=created_at&direction=desc&per_page=100'.format(api_url, org)
             ):
                 teams = response.json()
                 extraction_time = singer.utils.now()
@@ -864,7 +864,7 @@ def get_all_team_members(team_slug, schemas, repo_path, state, mdata):
     with metrics.record_counter('team_members') as counter:
         for response in authed_get_all_pages(
                 'team_members',
-                '{}orgs/{}/teams/{}/members?sort=created_at&direction=desc'.format(api_url, org, team_slug)
+                '{}orgs/{}/teams/{}/members?sort=created_at&direction=desc&per_page=100'.format(api_url, org, team_slug)
         ):
             team_members = response.json()
             for r in team_members:
@@ -884,7 +884,7 @@ def get_all_team_memberships(team_slug, schemas, repo_path, state, mdata):
 
     for response in authed_get_all_pages(
             'team_members',
-            '{}orgs/{}/teams/{}/members?sort=created_at&direction=desc'.format(api_url, org, team_slug)
+            '{}orgs/{}/teams/{}/members?sort=created_at&direction=desc&per_page=100'.format(api_url, org, team_slug)
         ):
         team_members = response.json()
         with metrics.record_counter('team_memberships') as counter:
@@ -965,7 +965,7 @@ def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
             try:
                 for response in authed_get_all_pages(
                     'teams',
-                    '{}orgs/{}/teams?sort=created_at&direction=desc'.format(api_url, org)
+                    '{}orgs/{}/teams?sort=created_at&direction=desc&per_page=100'.format(api_url, org)
                 ):
                     teams = response.json()
                     teams_list.extend([team['slug'] for team in teams])
