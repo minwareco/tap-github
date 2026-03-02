@@ -29,7 +29,7 @@ if DEBUG:
     debugpy.wait_for_client()
     breakpoint()
 
-from minware_singer_utils import GitLocal, SecureLogger
+from minware_singer_utils import GitLocal, GitLocalRepoNotFoundException, SecureLogger
 
 from singer import metadata
 
@@ -3141,15 +3141,16 @@ def do_sync(config, state, catalog):
                 logger.warning(f'{repo} is not available, skipping')
                 continue
 
-        gitLocal = GitLocal({
-            'access_token': access_token,
-            'workingDir': '/tmp'
-        }, 'https://x-access-token:{}@github.com/{}.git',
-            config['hmac_token'] if 'hmac_token' in config else None,
-            logger=logger,
-            commitsOnly=commits_only)
+        try:
+            gitLocal = GitLocal({
+                'access_token': access_token,
+                'workingDir': '/tmp'
+            }, 'https://x-access-token:{}@github.com/{}.git',
+                config['hmac_token'] if 'hmac_token' in config else None,
+                logger=logger,
+                commitsOnly=commits_only)
 
-        for stream in catalog['streams']:
+            for stream in catalog['streams']:
             stream_id = stream['tap_stream_id']
             stream_schema = stream['schema']
             mdata = stream['metadata']
@@ -3222,19 +3223,24 @@ def do_sync(config, state, catalog):
                             start_date
                         )
                         state = sync_func(stream_schemas, repo, state, mdata, start_date)
-        # Write the state after each repo. There use to be a check for:
-        #   stream_id != 'branches' and stream_id != 'pull_requests'
-        # to avoid saving the state after branches or pull_requests and having a data dependency on
-        # commits reading from their output, but that's no longer necessary that we wait for the
-        # whole repo to process.
-        # The reason for writing only after the whole repo is that the state size can get pretty
-        # big, which will end up exhausting memory in the target due to buffering those state lines
-        # while it is waiting for a certain amount of data to arrive.
-        # In the future, we should take a two-pronged appraoch to fixing this of both (1) reducing
-        # the size of the state itself, and (2) forking and modifying the postgres target to count
-        # the size of the state it is buffering as part of its memory limits, which it's not doing
-        # right now and running out of memory as a result.
-        singer.write_state(state)
+
+            # Write the state after each repo. There use to be a check for:
+            #   stream_id != 'branches' and stream_id != 'pull_requests'
+            # to avoid saving the state after branches or pull_requests and having a data dependency on
+            # commits reading from their output, but that's no longer necessary that we wait for the
+            # whole repo to process.
+            # The reason for writing only after the whole repo is that the state size can get pretty
+            # big, which will end up exhausting memory in the target due to buffering those state lines
+            # while it is waiting for a certain amount of data to arrive.
+            # In the future, we should take a two-pronged appraoch to fixing this of both (1) reducing
+            # the size of the state itself, and (2) forking and modifying the postgres target to count
+            # the size of the state it is buffering as part of its memory limits, which it's not doing
+            # right now and running out of memory as a result.
+            singer.write_state(state)
+
+        except GitLocalRepoNotFoundException as e:
+            logger.warning(f'Repository {repo} not found, skipping: {e}')
+            continue
 
 
 
