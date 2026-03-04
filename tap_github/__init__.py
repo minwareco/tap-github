@@ -29,7 +29,7 @@ if DEBUG:
     debugpy.wait_for_client()
     breakpoint()
 
-from minware_singer_utils import GitLocal, SecureLogger
+from minware_singer_utils import GitLocal, GitLocalRepoNotFoundException, SecureLogger
 
 from singer import metadata
 
@@ -3141,100 +3141,106 @@ def do_sync(config, state, catalog):
                 logger.warning(f'{repo} is not available, skipping')
                 continue
 
-        gitLocal = GitLocal({
-            'access_token': access_token,
-            'workingDir': '/tmp'
-        }, 'https://x-access-token:{}@github.com/{}.git',
-            config['hmac_token'] if 'hmac_token' in config else None,
-            logger=logger,
-            commitsOnly=commits_only)
+        try:
+            gitLocal = GitLocal({
+                'access_token': access_token,
+                'workingDir': '/tmp'
+            }, 'https://x-access-token:{}@github.com/{}.git',
+                config['hmac_token'] if 'hmac_token' in config else None,
+                logger=logger,
+                commitsOnly=commits_only)
 
-        for stream in catalog['streams']:
-            stream_id = stream['tap_stream_id']
-            stream_schema = stream['schema']
-            mdata = stream['metadata']
+            for stream in catalog['streams']:
+                stream_id = stream['tap_stream_id']
+                stream_schema = stream['schema']
+                mdata = stream['metadata']
 
-            # if it is a "sub_stream", it will be sync'd by its parent
-            if not SYNC_FUNCTIONS.get(stream_id):
-                continue
+                # if it is a "sub_stream", it will be sync'd by its parent
+                if not SYNC_FUNCTIONS.get(stream_id):
+                    continue
 
-            # if stream is selected, write schema and sync
-            if stream_id in selected_stream_ids:
-                logger.info("Syncing stream: %s", stream_id)
-                write_schema(stream_id, stream_schema, stream['key_properties'])
+                # if stream is selected, write schema and sync
+                if stream_id in selected_stream_ids:
+                    logger.info("Syncing stream: %s", stream_id)
+                    write_schema(stream_id, stream_schema, stream['key_properties'])
 
-                # get sync function and any sub streams
-                sync_func = SYNC_FUNCTIONS[stream_id]
-                sub_stream_ids = SUB_STREAMS.get(stream_id, None)
+                    # get sync function and any sub streams
+                    sync_func = SYNC_FUNCTIONS[stream_id]
+                    sub_stream_ids = SUB_STREAMS.get(stream_id, None)
 
-                # sync stream
-                if not sub_stream_ids:
-                    if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
-                        commits_only = stream_id == 'commit_files_meta'
+                    # sync stream
+                    if not sub_stream_ids:
+                        if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
+                            commits_only = stream_id == 'commit_files_meta'
+                            stream_schemas = {stream_id: stream_schema}
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)',
+                                stream_id,
+                                repo,
+                                start_date,
+                                commits_only,
+                                selected_stream_ids
+                            )
+                            state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only, selected_stream_ids)
+                        else:
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s)',
+                                stream_id,
+                                repo,
+                                start_date
+                            )
+                            state = sync_func(stream_schema, repo, state, mdata, start_date)
+
+                    # handle streams with sub streams
+                    else:
                         stream_schemas = {stream_id: stream_schema}
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date,
-                            commits_only,
-                            selected_stream_ids
-                        )
-                        state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only, selected_stream_ids)
-                    else:
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date
-                        )
-                        state = sync_func(stream_schema, repo, state, mdata, start_date)
 
-                # handle streams with sub streams
-                else:
-                    stream_schemas = {stream_id: stream_schema}
+                        # get and write selected sub stream schemas
+                        for sub_stream_id in sub_stream_ids:
+                            if sub_stream_id in selected_stream_ids:
+                                sub_stream = get_stream_from_catalog(sub_stream_id, catalog)
+                                stream_schemas[sub_stream_id] = sub_stream['schema']
+                                write_schema(sub_stream_id, sub_stream['schema'],
+                                                    sub_stream['key_properties'])
 
-                    # get and write selected sub stream schemas
-                    for sub_stream_id in sub_stream_ids:
-                        if sub_stream_id in selected_stream_ids:
-                            sub_stream = get_stream_from_catalog(sub_stream_id, catalog)
-                            stream_schemas[sub_stream_id] = sub_stream['schema']
-                            write_schema(sub_stream_id, sub_stream['schema'],
-                                                sub_stream['key_properties'])
+                        # sync stream and its sub streams
+                        if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)',
+                                stream_id,
+                                repo,
+                                start_date,
+                                commits_only,
+                                selected_stream_ids
+                            )
+                            state = sync_func(stream_schemas, repo, state, mdata, start_date,
+                                gitLocal, commits_only, selected_stream_ids)
+                        else:
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s)',
+                                stream_id,
+                                repo,
+                                start_date
+                            )
+                            state = sync_func(stream_schemas, repo, state, mdata, start_date)
 
-                    # sync stream and its sub streams
-                    if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date,
-                            commits_only,
-                            selected_stream_ids
-                        )
-                        state = sync_func(stream_schemas, repo, state, mdata, start_date,
-                            gitLocal, commits_only, selected_stream_ids)
-                    else:
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date
-                        )
-                        state = sync_func(stream_schemas, repo, state, mdata, start_date)
-        # Write the state after each repo. There use to be a check for:
-        #   stream_id != 'branches' and stream_id != 'pull_requests'
-        # to avoid saving the state after branches or pull_requests and having a data dependency on
-        # commits reading from their output, but that's no longer necessary that we wait for the
-        # whole repo to process.
-        # The reason for writing only after the whole repo is that the state size can get pretty
-        # big, which will end up exhausting memory in the target due to buffering those state lines
-        # while it is waiting for a certain amount of data to arrive.
-        # In the future, we should take a two-pronged appraoch to fixing this of both (1) reducing
-        # the size of the state itself, and (2) forking and modifying the postgres target to count
-        # the size of the state it is buffering as part of its memory limits, which it's not doing
-        # right now and running out of memory as a result.
-        singer.write_state(state)
+            # Write the state after each repo. There use to be a check for:
+            #   stream_id != 'branches' and stream_id != 'pull_requests'
+            # to avoid saving the state after branches or pull_requests and having a data dependency on
+            # commits reading from their output, but that's no longer necessary that we wait for the
+            # whole repo to process.
+            # The reason for writing only after the whole repo is that the state size can get pretty
+            # big, which will end up exhausting memory in the target due to buffering those state lines
+            # while it is waiting for a certain amount of data to arrive.
+            # In the future, we should take a two-pronged appraoch to fixing this of both (1) reducing
+            # the size of the state itself, and (2) forking and modifying the postgres target to count
+            # the size of the state it is buffering as part of its memory limits, which it's not doing
+            # right now and running out of memory as a result.
+            singer.write_state(state)
+
+        except GitLocalRepoNotFoundException as e:
+            logger.warning(f'Repository {repo} not found, skipping: {e}')
+            continue
 
 
 
