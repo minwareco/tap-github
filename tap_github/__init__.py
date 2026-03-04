@@ -3151,78 +3151,78 @@ def do_sync(config, state, catalog):
                 commitsOnly=commits_only)
 
             for stream in catalog['streams']:
-            stream_id = stream['tap_stream_id']
-            stream_schema = stream['schema']
-            mdata = stream['metadata']
+                stream_id = stream['tap_stream_id']
+                stream_schema = stream['schema']
+                mdata = stream['metadata']
 
-            # if it is a "sub_stream", it will be sync'd by its parent
-            if not SYNC_FUNCTIONS.get(stream_id):
-                continue
+                # if it is a "sub_stream", it will be sync'd by its parent
+                if not SYNC_FUNCTIONS.get(stream_id):
+                    continue
 
-            # if stream is selected, write schema and sync
-            if stream_id in selected_stream_ids:
-                logger.info("Syncing stream: %s", stream_id)
-                write_schema(stream_id, stream_schema, stream['key_properties'])
+                # if stream is selected, write schema and sync
+                if stream_id in selected_stream_ids:
+                    logger.info("Syncing stream: %s", stream_id)
+                    write_schema(stream_id, stream_schema, stream['key_properties'])
 
-                # get sync function and any sub streams
-                sync_func = SYNC_FUNCTIONS[stream_id]
-                sub_stream_ids = SUB_STREAMS.get(stream_id, None)
+                    # get sync function and any sub streams
+                    sync_func = SYNC_FUNCTIONS[stream_id]
+                    sub_stream_ids = SUB_STREAMS.get(stream_id, None)
 
-                # sync stream
-                if not sub_stream_ids:
-                    if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
-                        commits_only = stream_id == 'commit_files_meta'
+                    # sync stream
+                    if not sub_stream_ids:
+                        if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
+                            commits_only = stream_id == 'commit_files_meta'
+                            stream_schemas = {stream_id: stream_schema}
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)',
+                                stream_id,
+                                repo,
+                                start_date,
+                                commits_only,
+                                selected_stream_ids
+                            )
+                            state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only, selected_stream_ids)
+                        else:
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s)',
+                                stream_id,
+                                repo,
+                                start_date
+                            )
+                            state = sync_func(stream_schema, repo, state, mdata, start_date)
+
+                    # handle streams with sub streams
+                    else:
                         stream_schemas = {stream_id: stream_schema}
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date,
-                            commits_only,
-                            selected_stream_ids
-                        )
-                        state = sync_func(stream_schemas, repo, state, mdata, start_date, gitLocal, commits_only, selected_stream_ids)
-                    else:
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date
-                        )
-                        state = sync_func(stream_schema, repo, state, mdata, start_date)
 
-                # handle streams with sub streams
-                else:
-                    stream_schemas = {stream_id: stream_schema}
+                        # get and write selected sub stream schemas
+                        for sub_stream_id in sub_stream_ids:
+                            if sub_stream_id in selected_stream_ids:
+                                sub_stream = get_stream_from_catalog(sub_stream_id, catalog)
+                                stream_schemas[sub_stream_id] = sub_stream['schema']
+                                write_schema(sub_stream_id, sub_stream['schema'],
+                                                    sub_stream['key_properties'])
 
-                    # get and write selected sub stream schemas
-                    for sub_stream_id in sub_stream_ids:
-                        if sub_stream_id in selected_stream_ids:
-                            sub_stream = get_stream_from_catalog(sub_stream_id, catalog)
-                            stream_schemas[sub_stream_id] = sub_stream['schema']
-                            write_schema(sub_stream_id, sub_stream['schema'],
-                                                sub_stream['key_properties'])
-
-                    # sync stream and its sub streams
-                    if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date,
-                            commits_only,
-                            selected_stream_ids
-                        )
-                        state = sync_func(stream_schemas, repo, state, mdata, start_date,
-                            gitLocal, commits_only, selected_stream_ids)
-                    else:
-                        logger.info(
-                            'SYNC_FUNCTIONS[%s] (%s, %s)', 
-                            stream_id,
-                            repo,
-                            start_date
-                        )
-                        state = sync_func(stream_schemas, repo, state, mdata, start_date)
+                        # sync stream and its sub streams
+                        if stream_id == 'commit_files' or stream_id == 'commit_files_meta':
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s, %s, %s)',
+                                stream_id,
+                                repo,
+                                start_date,
+                                commits_only,
+                                selected_stream_ids
+                            )
+                            state = sync_func(stream_schemas, repo, state, mdata, start_date,
+                                gitLocal, commits_only, selected_stream_ids)
+                        else:
+                            logger.info(
+                                'SYNC_FUNCTIONS[%s] (%s, %s)',
+                                stream_id,
+                                repo,
+                                start_date
+                            )
+                            state = sync_func(stream_schemas, repo, state, mdata, start_date)
 
             # Write the state after each repo. There use to be a check for:
             #   stream_id != 'branches' and stream_id != 'pull_requests'
