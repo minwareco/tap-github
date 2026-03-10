@@ -119,5 +119,82 @@ class TestRepoNotFoundHandling(unittest.TestCase):
             tap_github.do_sync(config, {}, catalog)
 
 
+    @mock.patch("tap_github.set_auth_headers", return_value="fake-token")
+    @mock.patch("tap_github.get_repo_metadata")
+    @mock.patch("tap_github.GitLocal")
+    @mock.patch("tap_github.get_selected_streams", return_value=["repositories"])
+    @mock.patch("tap_github.validate_dependencies")
+    @mock.patch("singer.write_state")
+    @mock.patch.dict(
+        tap_github.SYNC_FUNCTIONS, {"repositories": mock.MagicMock(return_value={})}
+    )
+    def test_skips_repo_on_api_not_found(
+        self,
+        mock_write_state,
+        mock_validate,
+        mock_get_selected,
+        mock_git_local_cls,
+        mock_get_repo_metadata,
+        mock_set_auth,
+    ):
+        """When a stream raises NotFoundException (API 404), the repo is
+        skipped and sync continues to the next repo."""
+        sync_func = tap_github.SYNC_FUNCTIONS["repositories"]
+        sync_func.side_effect = [
+            tap_github.NotFoundException(
+                "HTTP-error-code: 404, URL: https://api.github.com/repos/org/deleted-repo"
+            ),
+            {},  # second repo succeeds
+        ]
+
+        config = {
+            "repository": "org/deleted-repo org/good-repo",
+            "access_token": "token",
+            "start_date": "2024-01-01",
+        }
+        catalog = self._make_catalog(["repositories"])
+
+        # Should not raise — the deleted repo is skipped
+        tap_github.do_sync(config, {}, catalog)
+
+        # Sync function was called for both repos
+        self.assertEqual(sync_func.call_count, 2)
+
+    @mock.patch("tap_github.set_auth_headers", return_value="fake-token")
+    @mock.patch("tap_github.get_repo_metadata")
+    @mock.patch("tap_github.GitLocal")
+    @mock.patch("tap_github.get_selected_streams", return_value=["repositories"])
+    @mock.patch("tap_github.validate_dependencies")
+    @mock.patch("singer.write_state")
+    @mock.patch.dict(
+        tap_github.SYNC_FUNCTIONS, {"repositories": mock.MagicMock(return_value={})}
+    )
+    def test_state_not_written_for_api_not_found_repo(
+        self,
+        mock_write_state,
+        mock_validate,
+        mock_get_selected,
+        mock_git_local_cls,
+        mock_get_repo_metadata,
+        mock_set_auth,
+    ):
+        """State should not be written for a repo skipped due to API 404."""
+        sync_func = tap_github.SYNC_FUNCTIONS["repositories"]
+        sync_func.side_effect = tap_github.NotFoundException(
+            "HTTP-error-code: 404, URL: https://api.github.com/repos/org/deleted-repo"
+        )
+
+        config = {
+            "repository": "org/deleted-repo",
+            "access_token": "token",
+            "start_date": "2024-01-01",
+        }
+        catalog = self._make_catalog(["repositories"])
+
+        tap_github.do_sync(config, {}, catalog)
+
+        mock_write_state.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
