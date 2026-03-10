@@ -3238,7 +3238,7 @@ def do_sync(config, state, catalog):
             # right now and running out of memory as a result.
             singer.write_state(state)
 
-        except GitLocalRepoNotFoundException as e:
+        except (GitLocalRepoNotFoundException, NotFoundException) as e:
             logger.warning(f'Repository {repo} not found, skipping: {e}')
             continue
 
