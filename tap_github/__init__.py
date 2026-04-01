@@ -983,27 +983,15 @@ def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
                     ):
                         team_metrics = response.json()
                         process_copilot_metrics(team_metrics, team_slug)
-                except (NotFoundException, UnprocessableError) as err:
-                    # Team may not have enough members or date range issues
+                except Exception as err:
                     logger.info('Could not fetch copilot metrics for team {} in org {}: {}'.format(team_slug, org, str(err)))
                     continue
-                    
-        except AuthException as err:
-            logger.info('Received 403 unauthorized while trying to access copilot metrics. ' \
-                       'Copilot Metrics API access policy must be enabled and you must have ' \
-                       'proper permissions. Skipping copilot_usage stream for repo {}.'\
-                       .format(repo_path))
-        except UnprocessableError as err:
-            logger.info('Received 422 unprocessable entity while trying to access copilot metrics. ' \
-                       'Your organization has disabled Copilot Metrics API access. ' \
-                       'Enable it in GitHub settings to access this endpoint. ' \
-                       'Skipping copilot_usage stream for repo {}.'\
-                       .format(repo_path))
-        except NotFoundException as err:
-            logger.info('Received 404 not found while trying to access copilot metrics. ' \
-                       'This org may not have copilot or the API may not be available. ' \
-                       'Skipping copilot_usage stream for repo {}.'\
-                       .format(repo_path))
+
+        except Exception as err:
+            logger.info('Error fetching copilot metrics for repo {}: {}. ' \
+                       'The Copilot Metrics API may be deprecated or unavailable. ' \
+                       'Skipping copilot_usage stream.'\
+                       .format(repo_path, str(err)))
     
     return state
 
