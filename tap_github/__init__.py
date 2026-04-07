@@ -2890,6 +2890,7 @@ def get_repository_data(schema, repo_path, state, mdata, _start_date):
         repo['fork_repo_name'] = fork_repo_name
         repo['description'] = repo_metadata['description']
         repo['is_fork'] = repo_metadata.get('fork', None)
+        repo['pushed_at'] = repo_metadata.get('pushed_at', None)
         with singer.Transformer() as transformer:
             rec = transformer.transform(repo, schema, metadata=metadata.to_map(mdata))
         singer.write_record('repositories', rec, time_extracted=extraction_time)
