@@ -58,6 +58,13 @@
                 "null",
                 "boolean"
             ]
+        },
+        "pushed_at": {
+            "type": [
+                "null",
+                "string"
+            ],
+            "format": "date-time"
         }
     }
 }
