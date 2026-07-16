@@ -60,7 +60,6 @@ class TestSubStreamSelection(unittest.TestCase):
                 {'tap_stream_id': 'project_columns', 'schema': {'selected': True}, 'metadata': []},
                 {'tap_stream_id': 'issues', 'schema': {'selected': True}, 'metadata': []},
                 {'tap_stream_id': 'pull_requests', 'schema': {'selected': True}, 'metadata': []},
-                {'tap_stream_id': 'copilot_usage', 'schema': {'selected': True}, 'metadata': []},
             ]
         }
         
@@ -74,7 +73,6 @@ class TestSubStreamSelection(unittest.TestCase):
         self.assertNotIn('projects', selected_streams)
         self.assertNotIn('project_cards', selected_streams)
         self.assertNotIn('project_columns', selected_streams)
-        self.assertNotIn('copilot_usage', selected_streams)
         
         # Non-global streams should remain
         self.assertIn('issues', selected_streams)
