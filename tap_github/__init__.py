@@ -50,7 +50,6 @@ KEY_PROPERTIES = {
     'commits': ['id'],
     'commit_files': ['id'],
     'comments': ['id'],
-    'copilot_usage': ['org', 'team_slug', 'date'],
     'deployments': ['id'],
     'deployment_statuses': ['id'],
     'issues': ['id'],
@@ -84,7 +83,6 @@ KEY_PROPERTIES = {
 
 GLOBAL_STREAMS = {
     'teams',
-    'copilot_usage',
     'issue_types',
     'projects',
     'projects_v2',
@@ -900,99 +898,6 @@ def get_all_team_memberships(team_slug, schemas, repo_path, state, mdata):
                         rec = transformer.transform(team_membership, schemas, metadata=metadata.to_map(mdata))
                     counter.increment()
                     yield rec
-    return state
-
-
-def get_all_copilot_usage(schema, repo_path, state, mdata, start_date):
-    """
-    Fetch copilot usage metrics for both organization and team levels.
-    
-    This fetches the last 28 days of data from:
-    - Organization level: /orgs/{org}/copilot/metrics
-    - Team level: /orgs/{org}/team/{team_slug}/copilot/metrics
-    
-    Data is transformed to include org + team_slug + date as ID properties
-    and the full API response is stringified into the 'record' field.
-    """
-    org = repo_path.split('/')[0]
-    
-    
-    # Skip for user accounts - copilot metrics are only for orgs
-    if getAccountType(org) == 'USER':
-        return state
-    
-    
-    # Calculate 99 days ago in ISO format
-    # Note: Using 99 days instead of 100 because team-level API has stricter date limits
-    since_date = (datetime.now() - timedelta(days=99)).strftime('%Y-%m-%dT00:00:00Z')
-    
-    def process_copilot_metrics(metrics_data, team_slug_value):
-        """Helper function to process and write copilot metrics data"""
-        extraction_time = singer.utils.now()
-        for daily_data in metrics_data:
-            # Add org and team_slug fields to the data
-            daily_data['org'] = org
-            daily_data['team_slug'] = team_slug_value
-            
-            # Create the record structure
-            record = {
-                'org': org,
-                'team_slug': team_slug_value,
-                'date': daily_data['date'],
-                'record': json.dumps(daily_data)  # Stringify the entire response
-            }
-            
-            # Transform and write the record
-            with singer.Transformer() as transformer:
-                rec = transformer.transform(record, schema, metadata=metadata.to_map(mdata))
-            singer.write_record('copilot_usage', rec, time_extracted=extraction_time)
-            singer.write_bookmark(state, repo_path, 'copilot_usage', {'since': singer.utils.strftime(extraction_time)})
-            counter.increment()
-
-    with metrics.record_counter('copilot_usage') as counter:
-        try:
-            # Fetch organization-level copilot metrics
-            for response in authed_get_all_pages(
-                'copilot_usage',
-                '{}orgs/{}/copilot/metrics?since={}'.format(api_url, org, since_date)
-            ):
-                org_metrics = response.json()
-                process_copilot_metrics(org_metrics, '')  # Empty team_slug for org-level data
-            
-            # Fetch team-level copilot metrics for each team
-            # First get all teams in the org
-            teams_list = []
-            try:
-                for response in authed_get_all_pages(
-                    'teams',
-                    '{}orgs/{}/teams?sort=created_at&direction=desc&per_page=100'.format(api_url, org)
-                ):
-                    teams = response.json()
-                    teams_list.extend([team['slug'] for team in teams])
-            except (AuthException, NotFoundException):
-                # Can't access teams, skip team-level metrics
-                logger.info('Cannot access teams for org {}, skipping team-level copilot metrics'.format(org))
-                teams_list = []
-            
-            # Fetch copilot metrics for each team
-            for team_slug in teams_list:
-                try:
-                    for response in authed_get_all_pages(
-                        'copilot_usage',
-                        '{}orgs/{}/team/{}/copilot/metrics?since={}'.format(api_url, org, team_slug, since_date)
-                    ):
-                        team_metrics = response.json()
-                        process_copilot_metrics(team_metrics, team_slug)
-                except Exception as err:
-                    logger.info('Could not fetch copilot metrics for team {} in org {}: {}'.format(team_slug, org, str(err)))
-                    continue
-
-        except Exception as err:
-            logger.info('Error fetching copilot metrics for repo {}: {}. ' \
-                       'The Copilot Metrics API may be deprecated or unavailable. ' \
-                       'Skipping copilot_usage stream.'\
-                       .format(repo_path, str(err)))
-    
     return state
 
 
@@ -2949,7 +2854,6 @@ SYNC_FUNCTIONS = {
     'commit_files': get_all_commit_files,
     'commit_files_meta': get_all_commit_files,
     'comments': get_all_comments,
-    'copilot_usage': get_all_copilot_usage,
     'issues': get_all_issues,
     'assignees': get_all_assignees,
     'collaborators': get_all_collaborators,
